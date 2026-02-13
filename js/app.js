@@ -27,7 +27,7 @@ import * as coordUtils from './tools/coordinates.js';
 // ============================
 // Initialize app
 // ============================
-document.addEventListener('DOMContentLoaded', () => {
+function boot() {
     logger.info('App', 'Initializing GIS Toolbox');
     initMap();
     setupEventListeners();
@@ -37,7 +37,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // Ensure Leaflet recalculates size after layout settles
     setTimeout(() => { mapManager.map?.invalidateSize(); }, 100);
     logger.info('App', 'App ready');
-});
+}
+// Handle both: module loaded before or after DOMContentLoaded
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+} else {
+    boot();
+}
 
 function initMap() {
     try {
