@@ -194,6 +194,38 @@ html, body {
 }
 .panel.collapsed { width: 0 !important; min-width: 0 !important; overflow: hidden; border: none; }
 
+/* Expand tabs — fixed to viewport edges, visible when panel is collapsed */
+.panel-expand-tab {
+    position: fixed;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 24px;
+    height: 60px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    color: var(--text-muted);
+    z-index: 500;
+    transition: background var(--transition), color var(--transition);
+    padding: 0;
+}
+.panel-expand-tab:hover { background: var(--primary); color: white; }
+.panel-expand-left {
+    left: 0;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    border-left: none;
+}
+.panel-expand-right {
+    right: 0;
+    border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+    border-right: none;
+}
+
 .panel-header {
     display: flex;
     align-items: center;
@@ -747,6 +779,36 @@ textarea { resize: vertical; min-height: 60px; }
 .mb-8 { margin-bottom: 8px; }
 .w-full { width: 100%; }
 .hidden { display: none !important; }
+
+/* Global drop overlay */
+#global-drop-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    background: rgba(37, 99, 235, 0.12);
+    border: 3px dashed var(--primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+}
+#global-drop-overlay.visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+.drop-overlay-content {
+    background: white;
+    padding: 32px 48px;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    text-align: center;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--primary);
+    pointer-events: none;
+}
 .truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .clickable { cursor: pointer; }
 .drag-handle { cursor: grab; color: var(--text-light); }

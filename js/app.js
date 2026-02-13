@@ -64,29 +64,64 @@ function checkMobile() {
 }
 
 // ============================
-// Drag & Drop file import
+// Drag & Drop file import (global — works anywhere in the app)
 // ============================
 function setupDragDrop() {
-    const mapEl = document.getElementById('map-container');
-    if (!mapEl) return;
+    let dragCounter = 0;
 
-    ['dragenter', 'dragover'].forEach(evt => {
-        mapEl.addEventListener(evt, e => {
-            e.preventDefault();
-            e.stopPropagation();
-            mapEl.classList.add('dragover');
-        });
+    // Create full-screen drop overlay
+    const overlay = document.createElement('div');
+    overlay.id = 'global-drop-overlay';
+    overlay.innerHTML = '<div class="drop-overlay-content">📂<br>Drop files to import</div>';
+    document.body.appendChild(overlay);
+
+    // Prevent default browser behavior for all drag events on the document
+    document.addEventListener('dragover', e => { e.preventDefault(); });
+    document.addEventListener('dragenter', e => {
+        e.preventDefault();
+        dragCounter++;
+        overlay.classList.add('visible');
     });
-    ['dragleave', 'drop'].forEach(evt => {
-        mapEl.addEventListener(evt, e => {
-            e.preventDefault();
-            e.stopPropagation();
-            mapEl.classList.remove('dragover');
-        });
+    document.addEventListener('dragleave', e => {
+        e.preventDefault();
+        dragCounter--;
+        if (dragCounter <= 0) {
+            dragCounter = 0;
+            overlay.classList.remove('visible');
+        }
     });
-    mapEl.addEventListener('drop', async (e) => {
-        const files = Array.from(e.dataTransfer.files);
-        if (files.length > 0) await handleFileImport(files);
+    document.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        dragCounter = 0;
+        overlay.classList.remove('visible');
+
+        const files = Array.from(e.dataTransfer?.files || []);
+        if (files.length === 0) return;
+
+        // Separate image files from data files
+        const imageFiles = files.filter(f =>
+            f.type.startsWith('image/') ||
+            /\.(jpe?g|png|heic|heif|tiff?|webp)$/i.test(f.name)
+        );
+        const dataFiles = files.filter(f => !imageFiles.includes(f));
+
+        // Import data files (GIS formats)
+        if (dataFiles.length > 0) {
+            await handleFileImport(dataFiles);
+        }
+        // Import image files (photo mapper)
+        if (imageFiles.length > 0) {
+            const result = await photoMapper.processPhotos(imageFiles);
+            if (result?.dataset) {
+                addLayer(result.dataset);
+                mapManager.addLayer(result.dataset, getLayers().indexOf(result.dataset));
+                refreshUI();
+                showToast(`Mapped ${result.withGPS} photo(s) with GPS`, 'success');
+            }
+            if (result?.withoutGPS > 0) {
+                showToast(`${result.withoutGPS} photo(s) have no GPS data`, 'warning');
+            }
+        }
     });
 }
 
@@ -137,16 +172,22 @@ async function handleFileImport(files) {
 // Setup all event listeners
 // ============================
 function setupEventListeners() {
-    // Import button
+    // Import button — use a persistent hidden input (iOS-safe)
+    const importInput = document.createElement('input');
+    importInput.type = 'file';
+    importInput.multiple = true;
+    importInput.accept = '.geojson,.json,.csv,.tsv,.txt,.xlsx,.xls,.kml,.kmz,.zip,.xml';
+    importInput.style.cssText = 'opacity:0;position:absolute;width:0;height:0;overflow:hidden;pointer-events:none;';
+    document.body.appendChild(importInput);
+    importInput.addEventListener('change', () => {
+        if (importInput.files.length > 0) {
+            const files = Array.from(importInput.files);
+            handleFileImport(files);
+        }
+    });
     document.getElementById('btn-import')?.addEventListener('click', () => {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.multiple = true;
-        input.accept = '.geojson,.json,.csv,.tsv,.txt,.xlsx,.xls,.kml,.kmz,.zip,.xml';
-        input.onchange = () => {
-            if (input.files.length > 0) handleFileImport(Array.from(input.files));
-        };
-        input.click();
+        importInput.value = ''; // reset so re-selecting same files triggers change
+        importInput.click();
     });
 
     // Mobile import
@@ -168,9 +209,6 @@ function setupEventListeners() {
     // Logs
     document.getElementById('btn-logs')?.addEventListener('click', toggleLogs);
 
-    // Export
-    document.getElementById('btn-export')?.addEventListener('click', openExportModal);
-
     // Merge layers
     document.getElementById('btn-merge')?.addEventListener('click', handleMergeLayers);
 
@@ -191,10 +229,32 @@ function setupEventListeners() {
 
     // Panel collapse
     document.getElementById('toggle-left-panel')?.addEventListener('click', () => {
-        document.querySelector('.panel-left')?.classList.toggle('collapsed');
+        const panel = document.querySelector('.panel-left');
+        panel?.classList.toggle('collapsed');
+        const isCollapsed = panel?.classList.contains('collapsed');
+        document.getElementById('expand-left-panel')?.classList.toggle('hidden', !isCollapsed);
+        document.getElementById('toggle-left-panel').textContent = isCollapsed ? '▶' : '◀';
+        setTimeout(() => { mapManager.map?.invalidateSize(); }, 250);
+    });
+    document.getElementById('expand-left-panel')?.addEventListener('click', () => {
+        document.querySelector('.panel-left')?.classList.remove('collapsed');
+        document.getElementById('expand-left-panel')?.classList.add('hidden');
+        document.getElementById('toggle-left-panel').textContent = '◀';
+        setTimeout(() => { mapManager.map?.invalidateSize(); }, 250);
     });
     document.getElementById('toggle-right-panel')?.addEventListener('click', () => {
-        document.querySelector('.panel-right')?.classList.toggle('collapsed');
+        const panel = document.querySelector('.panel-right');
+        panel?.classList.toggle('collapsed');
+        const isCollapsed = panel?.classList.contains('collapsed');
+        document.getElementById('expand-right-panel')?.classList.toggle('hidden', !isCollapsed);
+        document.getElementById('toggle-right-panel').textContent = isCollapsed ? '◀' : '▶';
+        setTimeout(() => { mapManager.map?.invalidateSize(); }, 250);
+    });
+    document.getElementById('expand-right-panel')?.addEventListener('click', () => {
+        document.querySelector('.panel-right')?.classList.remove('collapsed');
+        document.getElementById('expand-right-panel')?.classList.add('hidden');
+        document.getElementById('toggle-right-panel').textContent = '▶';
+        setTimeout(() => { mapManager.map?.invalidateSize(); }, 250);
     });
 
     // Listen for layer changes to update UI
@@ -230,7 +290,6 @@ function refreshUI() {
 function updateToolbarState() {
     const layers = getLayers();
     const hasLayers = layers.length > 0;
-    document.getElementById('btn-export')?.classList.toggle('hidden', !hasLayers);
     document.getElementById('btn-merge')?.classList.toggle('hidden', layers.length < 2);
 
     const hs = getHistoryState();
@@ -532,11 +591,14 @@ function renderMobileToolsPanel() {
     const el = document.getElementById('mobile-tools');
     if (!el) return;
     const basemapOptions = [
-        { value: 'osm', label: 'OpenStreetMap' },
-        { value: 'positron', label: 'Positron' },
+        { value: 'osm', label: 'Street Map' },
+        { value: 'light', label: 'Light / Gray' },
         { value: 'dark', label: 'Dark' },
-        { value: 'topo', label: 'Topo' },
-        { value: 'none', label: 'None' }
+        { value: 'voyager', label: 'Voyager' },
+        { value: 'topo', label: 'Topographic' },
+        { value: 'satellite', label: 'Satellite' },
+        { value: 'hybrid', label: 'Hybrid' },
+        { value: 'none', label: 'No Basemap' }
     ];
     const currentBasemap = document.getElementById('basemap-select')?.value || 'osm';
     el.innerHTML = `
@@ -1167,9 +1229,13 @@ async function openPhotoMapper() {
     const html = `
         <div class="drop-zone" id="photo-drop" style="margin-bottom:16px;">
             <div style="font-size:24px; margin-bottom:8px;">📷</div>
-            <p>Drop photos here or click to select</p>
-            <input type="file" id="photo-input" multiple accept="image/*" style="display:none">
+            <p>Drop photos here or tap to select</p>
+            <input type="file" id="photo-input" multiple accept="image/*,.jpg,.jpeg,.png,.heic,.heif,.tiff,.tif"
+                   style="opacity:0;position:absolute;width:0;height:0;overflow:hidden;pointer-events:none;">
             <button class="btn btn-primary mt-8" id="photo-btn">Select Photos</button>
+        </div>
+        <div class="info-box text-xs mb-8" style="color:var(--text-muted);">
+            📍 Photos must contain embedded GPS/geolocation metadata (EXIF) to be placed on the map. Most smartphone cameras save location automatically when location services are enabled. Photos without GPS data will still be listed but won't appear on the map.
         </div>
         <div id="photo-results" class="hidden">
             <div id="photo-stats" class="flex gap-8 mb-8"></div>
@@ -1194,8 +1260,19 @@ async function openPhotoMapper() {
             const fileInput = overlay.querySelector('#photo-input');
             const dropZone = overlay.querySelector('#photo-drop');
 
-            overlay.querySelector('#photo-btn').onclick = () => fileInput.click();
-            dropZone.onclick = () => fileInput.click();
+            // Prevent double-click: button is inside drop zone, so stop propagation
+            overlay.querySelector('#photo-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                fileInput.value = ''; // reset so re-selecting same files fires change
+                fileInput.click();
+            });
+            dropZone.addEventListener('click', (e) => {
+                // Only trigger if clicking the zone itself, not child buttons/inputs
+                if (e.target === dropZone || e.target.tagName === 'P' || e.target.tagName === 'DIV') {
+                    fileInput.value = '';
+                    fileInput.click();
+                }
+            });
 
             dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
             dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
@@ -1205,7 +1282,14 @@ async function openPhotoMapper() {
                 processPhotoFiles(Array.from(e.dataTransfer.files), overlay);
             });
 
-            fileInput.onchange = () => processPhotoFiles(Array.from(fileInput.files), overlay);
+            // Use addEventListener (more reliable on iOS than .onchange)
+            fileInput.addEventListener('change', () => {
+                if (fileInput.files.length > 0) {
+                    // Clone FileList immediately — iOS can invalidate it
+                    const files = Array.from(fileInput.files);
+                    processPhotoFiles(files, overlay);
+                }
+            });
 
             // Export buttons
             overlay.querySelector('#photo-export-geojson')?.addEventListener('click', async () => {
@@ -1235,11 +1319,22 @@ async function openPhotoMapper() {
 }
 
 async function processPhotoFiles(files, modalOverlay) {
-    const imageFiles = files.filter(f => f.type.startsWith('image/') || /\.(jpe?g|png|heic|heif|tiff?)$/i.test(f.name));
+    // Broad filter — iOS may report no type for some images
+    const imageFiles = files.filter(f =>
+        f.type.startsWith('image/') ||
+        /\.(jpe?g|png|heic|heif|tiff?|webp|bmp|gif)$/i.test(f.name) ||
+        (!f.type && f.size > 0) // iOS sometimes gives no MIME type — let it through
+    );
     if (imageFiles.length === 0) {
         showToast('No image files found', 'warning');
         return;
     }
+
+    logger.info('PhotoMapper', 'processPhotoFiles called', {
+        count: imageFiles.length,
+        names: imageFiles.map(f => f.name).join(', '),
+        types: imageFiles.map(f => f.type || 'none').join(', ')
+    });
 
     const progress = showProgressModal('Processing Photos');
     const taskRunner = { throwIfCancelled() {}, updateProgress(p, s) { progress.update(p, s); } };

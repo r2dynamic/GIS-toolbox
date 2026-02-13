@@ -46,16 +46,16 @@
             <button class="btn btn-ghost btn-sm" id="btn-undo" disabled title="Undo">↩</button>
             <button class="btn btn-ghost btn-sm" id="btn-redo" disabled title="Redo">↪</button>
             <button class="btn btn-secondary btn-sm hidden" id="btn-merge">Merge Layers</button>
-            <button class="btn btn-primary btn-sm hidden" id="btn-export">
-                <span class="btn-icon-text">💾</span><span>Export</span>
-            </button>
         </div>
         <div class="header-right">
             <select id="basemap-select" class="btn-sm" title="Basemap">
-                <option value="osm">OpenStreetMap</option>
-                <option value="positron">CartoDB Positron</option>
-                <option value="dark">CartoDB Dark</option>
-                <option value="topo">OpenTopoMap</option>
+                <option value="osm">Street Map</option>
+                <option value="light">Light / Gray</option>
+                <option value="dark">Dark</option>
+                <option value="voyager">Voyager</option>
+                <option value="topo">Topographic</option>
+                <option value="satellite">Satellite</option>
+                <option value="hybrid">Hybrid</option>
                 <option value="none">No Basemap</option>
             </select>
             <button class="btn btn-ghost btn-sm" id="btn-logs" title="Logs">📋</button>
@@ -132,6 +132,10 @@
             </div>
         </aside>
     </div>
+
+    <!-- Expand tabs for collapsed panels (outside app-layout so they aren't clipped) -->
+    <button class="panel-expand-tab panel-expand-left hidden" id="expand-left-panel" title="Expand Layers">▶</button>
+    <button class="panel-expand-tab panel-expand-right hidden" id="expand-right-panel" title="Expand Export">◀</button>
 
     <!-- ================================ -->
     <!-- LOGS PANEL (slides up)           -->
@@ -220,5 +224,21 @@
 
     <!-- App Entry Point -->
     <script type="module" src="js/app.js"></script>
+
+    <!-- Register Service Worker -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('./sw.js').then(reg => {
+                reg.onupdatefound = () => {
+                    const worker = reg.installing;
+                    worker.onstatechange = () => {
+                        if (worker.state === 'activated') {
+                            window.location.reload();
+                        }
+                    };
+                };
+            });
+        }
+    </script>
 </body>
 </html>

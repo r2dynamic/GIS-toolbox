@@ -7,29 +7,53 @@ import bus from '../core/event-bus.js';
 
 const BASEMAPS = {
     osm: {
-        name: 'OpenStreetMap',
+        name: 'Street Map',
         url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        attribution: '&copy; <a href="https://openstreetmap.org/copyright">OpenStreetMap</a>'
+        attribution: '&copy; <a href="https://openstreetmap.org/copyright">OpenStreetMap</a>',
+        maxZoom: 19
     },
-    carto_light: {
-        name: 'CartoDB Positron',
+    light: {
+        name: 'Light / Gray',
         url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-        attribution: '&copy; <a href="https://openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>'
+        attribution: '&copy; <a href="https://openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+        maxZoom: 20
     },
-    carto_dark: {
-        name: 'CartoDB Dark',
+    dark: {
+        name: 'Dark',
         url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-        attribution: '&copy; <a href="https://openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>'
+        attribution: '&copy; <a href="https://openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+        maxZoom: 20
+    },
+    voyager: {
+        name: 'Voyager',
+        url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+        attribution: '&copy; <a href="https://openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+        maxZoom: 20
     },
     topo: {
-        name: 'OpenTopoMap',
+        name: 'Topographic',
         url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
-        attribution: '&copy; <a href="https://openstreetmap.org/copyright">OSM</a> &copy; <a href="https://opentopomap.org">OpenTopoMap</a>'
+        attribution: '&copy; <a href="https://openstreetmap.org/copyright">OSM</a> &copy; <a href="https://opentopomap.org">OpenTopoMap</a>',
+        maxZoom: 17
+    },
+    satellite: {
+        name: 'Satellite',
+        url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        attribution: '&copy; Esri, Maxar, Earthstar Geographics',
+        maxZoom: 19
+    },
+    hybrid: {
+        name: 'Hybrid',
+        url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        attribution: '&copy; Esri, Maxar, Earthstar Geographics &copy; <a href="https://openstreetmap.org/copyright">OSM</a>',
+        maxZoom: 19,
+        overlay: 'https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png'
     },
     none: {
         name: 'No Basemap',
         url: null,
-        attribution: ''
+        attribution: '',
+        maxZoom: 19
     }
 };
 
@@ -72,20 +96,36 @@ class MapManager {
 
     setBasemap(key) {
         const bm = BASEMAPS[key];
-        if (!bm) return;
+        if (!bm) {
+            logger.warn('Map', 'Unknown basemap key', { key });
+            return;
+        }
 
+        // Remove existing layers
         if (this.basemapLayer) {
             this.map.removeLayer(this.basemapLayer);
             this.basemapLayer = null;
+        }
+        if (this._labelLayer) {
+            this.map.removeLayer(this._labelLayer);
+            this._labelLayer = null;
         }
 
         if (bm.url) {
             try {
                 this.basemapLayer = L.tileLayer(bm.url, {
                     attribution: bm.attribution,
-                    maxZoom: 19,
+                    maxZoom: bm.maxZoom || 19,
                     errorTileUrl: ''
                 }).addTo(this.map);
+
+                // Hybrid overlay (labels on top of satellite)
+                if (bm.overlay) {
+                    this._labelLayer = L.tileLayer(bm.overlay, {
+                        maxZoom: 20,
+                        pane: 'overlayPane'
+                    }).addTo(this.map);
+                }
             } catch (e) {
                 logger.warn('Map', 'Basemap load error', { basemap: key, error: e.message });
             }
