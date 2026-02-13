@@ -204,7 +204,7 @@
         border: 1px solid var(--border);
     }
     .mobile-content .layer-item.active {
-        background: #eff6ff;
+        background: rgba(59,130,246,0.1);
         border-color: var(--primary);
         border-left: 3px solid var(--primary);
     }

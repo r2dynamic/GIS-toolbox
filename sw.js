@@ -2,7 +2,7 @@
 // GIS Toolbox — Service Worker
 // Bump CACHE_VERSION to push updates
 // ============================================
-const CACHE_VERSION = '1.0.5';
+const CACHE_VERSION = '1.5.9';
 const CACHE_NAME = `gis-toolbox-v${CACHE_VERSION}`;
 
 const APP_FILES = [
@@ -43,7 +43,9 @@ const APP_FILES = [
     './js/tools/coordinates.js',
     './js/tools/gis-tools.js',
     './js/ui/modals.js',
-    './js/ui/toast.js'
+    './js/ui/toast.js',
+    './header_background.jpeg',
+    './Side_Background.jpeg'
 ];
 
 // CDN libraries — cached separately, rarely change

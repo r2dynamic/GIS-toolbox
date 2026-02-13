@@ -66,7 +66,7 @@ async function buildPhotoKMZ(dataset, options, task) {
             } else {
                 imgFolder.file(imgName, photo.blob);
             }
-            imgRef = `<img src="images/${imgName}" width="320" /><br/>`;
+            imgRef = `<img src="images/${imgName}" style="max-width:400px;max-height:400px;" /><br/>`;
         }
 
         const desc = `${imgRef}${buildDescTable(f.properties)}`;
@@ -103,7 +103,7 @@ ${placemarks.join('\n')}
 function buildDescTable(props) {
     if (!props) return '';
     return '<table>' + Object.entries(props)
-        .filter(([k, v]) => v != null && v !== '' && k !== 'thumbnail')
+        .filter(([k, v]) => v != null && v !== '' && !k.startsWith('_'))
         .map(([k, v]) => `<tr><td><b>${escapeXml(k)}</b></td><td>${escapeXml(String(v))}</td></tr>`)
         .join('') + '</table>';
 }

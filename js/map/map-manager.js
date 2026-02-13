@@ -217,10 +217,11 @@ class MapManager {
         const props = feature.properties || {};
         let imgHtml = '';
 
-        // Show photo thumbnail if available
-        if (props._thumbnailUrl) {
+        // Show photo thumbnail if available (prefer blob URL for speed, fallback to data URL)
+        const imgSrc = props._thumbnailUrl || props._thumbnailDataUrl;
+        if (imgSrc) {
             imgHtml = `<div style="margin-bottom:6px;text-align:center;">
-                <img src="${props._thumbnailUrl}" style="max-width:280px;max-height:200px;border-radius:4px;" />
+                <img src="${imgSrc}" style="max-width:280px;max-height:200px;border-radius:4px;" />
             </div>`;
         }
 

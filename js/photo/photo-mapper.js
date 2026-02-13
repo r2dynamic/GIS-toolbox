@@ -78,9 +78,10 @@ export class PhotoMapper {
                 try {
                     photoInfo.thumbnail = await this.createThumbnail(file, 320);
                     photoInfo.thumbnailUrl = URL.createObjectURL(photoInfo.thumbnail);
+                    // Create base64 data URL for export portability
+                    photoInfo.thumbnailDataUrl = await this.blobToDataUrl(photoInfo.thumbnail);
                 } catch (e) {
                     logger.warn('PhotoMapper', 'Thumbnail creation failed', { file: file.name, error: e.message });
-                    // Create object URL directly for preview
                     photoInfo.thumbnailUrl = URL.createObjectURL(file);
                 }
 
@@ -161,6 +162,15 @@ export class PhotoMapper {
     }
 
     async createThumbnail(file, maxSize = 320) {
+        // Read EXIF orientation before drawing to canvas
+        let orientation = 1;
+        if (typeof exifr !== 'undefined') {
+            try {
+                const o = await exifr.orientation(file);
+                if (o) orientation = o;
+            } catch (_) { }
+        }
+
         return new Promise((resolve, reject) => {
             const img = new Image();
             const url = URL.createObjectURL(file);
@@ -169,20 +179,39 @@ export class PhotoMapper {
                 try {
                     const canvas = document.createElement('canvas');
                     let { width, height } = img;
+
+                    // Scale to maxSize
                     if (width > height) {
                         if (width > maxSize) { height = height * maxSize / width; width = maxSize; }
                     } else {
                         if (height > maxSize) { width = width * maxSize / height; height = maxSize; }
                     }
-                    canvas.width = width;
-                    canvas.height = height;
+
+                    // Orientations 5-8 swap width/height
+                    const swapDimensions = orientation >= 5 && orientation <= 8;
+                    canvas.width = swapDimensions ? height : width;
+                    canvas.height = swapDimensions ? width : height;
+
                     const ctx = canvas.getContext('2d');
+
+                    // Apply EXIF orientation transform
+                    switch (orientation) {
+                        case 2: ctx.transform(-1, 0, 0, 1, canvas.width, 0); break;           // flip H
+                        case 3: ctx.transform(-1, 0, 0, -1, canvas.width, canvas.height); break; // rotate 180
+                        case 4: ctx.transform(1, 0, 0, -1, 0, canvas.height); break;           // flip V
+                        case 5: ctx.transform(0, 1, 1, 0, 0, 0); break;                       // transpose
+                        case 6: ctx.transform(0, 1, -1, 0, canvas.width, 0); break;            // rotate 90 CW
+                        case 7: ctx.transform(0, -1, -1, 0, canvas.width, canvas.height); break; // transverse
+                        case 8: ctx.transform(0, -1, 1, 0, 0, canvas.height); break;           // rotate 90 CCW
+                        default: break; // orientation 1 = normal, no transform
+                    }
+
                     ctx.drawImage(img, 0, 0, width, height);
                     canvas.toBlob(blob => {
                         URL.revokeObjectURL(url);
                         if (blob) resolve(blob);
                         else reject(new Error('Thumbnail blob creation failed'));
-                    }, 'image/jpeg', 0.7);
+                    }, 'image/jpeg', 0.85);
                 } catch (e) {
                     URL.revokeObjectURL(url);
                     reject(e);
@@ -195,6 +224,15 @@ export class PhotoMapper {
             };
 
             img.src = url;
+        });
+    }
+
+    blobToDataUrl(blob) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(new Error('Failed to read blob'));
+            reader.readAsDataURL(blob);
         });
     }
 
@@ -216,12 +254,17 @@ export class PhotoMapper {
                 altitude: p.altitude || '',
                 heading: p.heading || '',
                 fileSize: p.size,
-                _thumbnailUrl: p.thumbnailUrl || ''
+                _thumbnailUrl: p.thumbnailUrl || '',
+                _thumbnailDataUrl: p.thumbnailDataUrl || ''
             }
         }));
 
         const geojson = { type: 'FeatureCollection', features };
-        return createSpatialDataset('Photo_Points', geojson, { format: 'photos' });
+        // Attach photo blobs to dataset for export
+        const ds = createSpatialDataset('Photo_Points', geojson, { format: 'photos' });
+        ds._photoExportData = this.getPhotosForExport();
+        ds._useFullSize = this._useFullSize || false;
+        return ds;
     }
 
     getPhotos() { return this.photos; }
@@ -231,7 +274,8 @@ export class PhotoMapper {
         return this.photos.filter(p => p.hasGPS).map(p => ({
             filename: p.filename,
             blob: p.blob,
-            thumbnail: p.thumbnail
+            thumbnail: p.thumbnail,
+            thumbnailDataUrl: p.thumbnailDataUrl || ''
         }));
     }
 

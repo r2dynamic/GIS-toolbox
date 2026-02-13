@@ -47,6 +47,13 @@ export async function exportDataset(dataset, format, options = {}) {
     return task.run(async (t) => {
         t.updateProgress(10, 'Preparing data...');
 
+        // Auto-attach photo data for photo datasets
+        if (dataset._photoExportData && format === 'kmz' && !options.photos) {
+            options.photos = dataset._photoExportData;
+            options.embedThumbnails = !dataset._useFullSize;
+            options.skipFieldSelection = true;
+        }
+
         // Apply field selection if not photo export
         let exportData = dataset;
         if (!options.skipFieldSelection) {

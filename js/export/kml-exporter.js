@@ -31,11 +31,15 @@ ${placemarks}
 
 function buildDescription(props) {
     if (!props) return '';
+    let imgHtml = '';
+    if (props._thumbnailDataUrl) {
+        imgHtml = `<img src="${props._thumbnailDataUrl}" style="max-width:400px;max-height:400px;" /><br/>`;
+    }
     const rows = Object.entries(props)
-        .filter(([k, v]) => v != null && v !== '')
+        .filter(([k, v]) => v != null && v !== '' && !k.startsWith('_'))
         .map(([k, v]) => `<tr><td><b>${escapeXml(k)}</b></td><td>${escapeXml(String(v))}</td></tr>`)
         .join('');
-    return `<table>${rows}</table>`;
+    return `${imgHtml}<table>${rows}</table>`;
 }
 
 function geometryToKML(geom) {

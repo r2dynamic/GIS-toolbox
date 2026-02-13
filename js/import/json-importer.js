@@ -1,5 +1,6 @@
 /**
  * Generic JSON importer — detects GeoJSON vs plain table
+ * Auto-detects lat/lon columns and creates spatial datasets when possible
  */
 import { createSpatialDataset, createTableDataset } from '../core/data-model.js';
 import { AppError, ErrorCategory } from '../core/error-handler.js';
@@ -38,9 +39,16 @@ export async function importJSON(file, task) {
         );
     }
 
-    // Array of objects → table
+    // Array of objects → check for coordinates, else table
     if (Array.isArray(data) && data.length > 0 && typeof data[0] === 'object') {
-        task.updateProgress(70, 'Creating table dataset...');
+        task.updateProgress(70, 'Detecting coordinates...');
+        const fields = Object.keys(data[0]);
+        const coordInfo = detectCoordinateColumns(fields, data);
+        if (coordInfo) {
+            task.updateProgress(80, 'Creating spatial dataset...');
+            return rowsToSpatial(data, coordInfo, file);
+        }
+        task.updateProgress(80, 'Creating table dataset...');
         return createTableDataset(
             file.name.replace(/\.json$/i, ''),
             data,
@@ -52,9 +60,15 @@ export async function importJSON(file, task) {
     // Object with a data/records/results array
     for (const key of ['data', 'records', 'results', 'rows', 'items']) {
         if (Array.isArray(data[key]) && data[key].length > 0 && typeof data[key][0] === 'object') {
+            const rows = data[key];
+            const fields = Object.keys(rows[0]);
+            const coordInfo = detectCoordinateColumns(fields, rows);
+            if (coordInfo) {
+                return rowsToSpatial(rows, coordInfo, file);
+            }
             return createTableDataset(
                 file.name.replace(/\.json$/i, ''),
-                data[key],
+                rows,
                 null,
                 { file: file.name, format: 'json-table' }
             );
@@ -66,6 +80,60 @@ export async function importJSON(file, task) {
         ErrorCategory.PARSE_FAILED,
         { file: file.name }
     );
+}
+
+/**
+ * Detect lat/lon columns from field names and data
+ */
+function detectCoordinateColumns(fields, rows) {
+    const lower = fields.map(f => f.toLowerCase());
+    const latPatterns = ['lat', 'latitude', 'y', 'lat_dd', 'latitude_dd'];
+    const lonPatterns = ['lon', 'lng', 'long', 'longitude', 'x', 'lon_dd', 'longitude_dd'];
+
+    let latField = null, lonField = null;
+    for (const p of latPatterns) {
+        const idx = lower.findIndex(f => f === p || f === p.replace('_', ''));
+        if (idx >= 0) { latField = fields[idx]; break; }
+    }
+    for (const p of lonPatterns) {
+        const idx = lower.findIndex(f => f === p || f === p.replace('_', ''));
+        if (idx >= 0) { lonField = fields[idx]; break; }
+    }
+
+    if (latField && lonField) {
+        const sample = rows.slice(0, 20);
+        const validCount = sample.filter(r => {
+            const lat = parseFloat(r[latField]);
+            const lon = parseFloat(r[lonField]);
+            return !isNaN(lat) && !isNaN(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+        }).length;
+        if (validCount >= sample.length * 0.5) {
+            return { latField, lonField };
+        }
+    }
+    return null;
+}
+
+/**
+ * Convert rows with coordinate columns into a spatial dataset
+ */
+function rowsToSpatial(rows, coordInfo, file) {
+    const features = rows.map(row => {
+        const lat = parseFloat(row[coordInfo.latField]);
+        const lon = parseFloat(row[coordInfo.lonField]);
+        const geom = (!isNaN(lat) && !isNaN(lon))
+            ? { type: 'Point', coordinates: [lon, lat] }
+            : null;
+        return { type: 'Feature', geometry: geom, properties: { ...row } };
+    });
+    const fc = { type: 'FeatureCollection', features };
+    const ds = createSpatialDataset(
+        file.name.replace(/\.json$/i, ''),
+        fc,
+        { file: file.name, format: 'json-spatial', coordDetected: coordInfo }
+    );
+    ds._coordInfo = coordInfo;
+    return ds;
 }
 
 function convertEsriGeometry(geom) {

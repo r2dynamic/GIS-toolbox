@@ -332,10 +332,11 @@ function renderLayerList() {
             <div class="layer-item ${isActive ? 'active' : ''}" data-id="${layer.id}">
                 <span class="layer-icon">${icon}</span>
                 <div class="layer-info" onclick="window.app.setActiveLayer('${layer.id}')">
-                    <div class="layer-name">${layer.name}</div>
+                    <div class="layer-name" ondblclick="event.stopPropagation(); window.app.renameLayer('${layer.id}', this)">${layer.name}</div>
                     <div class="layer-meta">${count} · ${layer.schema?.fields?.length || 0} fields ${geomBadge}</div>
                 </div>
                 <div class="layer-actions">
+                    <button class="btn-icon" title="Rename" onclick="window.app.renameLayer('${layer.id}')">✏️</button>
                     <button class="btn-icon" title="Toggle visibility" onclick="window.app.toggleVisibility('${layer.id}')">
                         ${layer.visible ? '👁️' : '👁️‍🗨️'}
                     </button>
@@ -369,9 +370,9 @@ function renderFieldList() {
     const fieldRows = fields.map(f => `
         <div class="field-item" data-field="${f.name}">
             <input type="checkbox" ${f.selected ? 'checked' : ''} onchange="window.app.toggleField('${f.name}', this.checked)">
-            <span class="field-name">${f.outputName || f.name}</span>
+            <span class="field-name" ondblclick="window.app.renameField('${f.name}', this)" title="Double-click to rename">${f.outputName || f.name}</span>
             <span class="field-type">${f.type}</span>
-            <span class="field-stats text-xs">${f.uniqueCount ?? ''}u · ${f.nullCount ?? ''}n</span>
+            <button class="btn-icon" style="font-size:10px;padding:2px;" title="Rename field" onclick="window.app.renameField('${f.name}')">✏️</button>
         </div>
     `).join('');
 
@@ -601,9 +602,11 @@ function renderMobileToolsPanel() {
         { value: 'none', label: 'No Basemap' }
     ];
     const currentBasemap = document.getElementById('basemap-select')?.value || 'osm';
+    const layers = getLayers();
     el.innerHTML = `
         <h3>GIS Tools</h3>
         <div style="display:flex;flex-wrap:wrap;gap:4px;">
+            ${layers.length >= 2 ? '<button class="btn btn-primary btn-sm" onclick="window.app.mergeLayers()">🔗 Merge Layers</button>' : ''}
             <button class="btn btn-secondary btn-sm" onclick="window.app.openBuffer()">Buffer</button>
             <button class="btn btn-secondary btn-sm" onclick="window.app.openSimplify()">Simplify</button>
             <button class="btn btn-secondary btn-sm" onclick="window.app.openClip()">Clip to Extent</button>
@@ -1240,17 +1243,12 @@ async function openPhotoMapper() {
         <div id="photo-results" class="hidden">
             <div id="photo-stats" class="flex gap-8 mb-8"></div>
             <div id="photo-grid" class="photo-grid"></div>
-            <div class="divider"></div>
-            <h4>Export Options</h4>
-            <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;">
-                <button class="btn btn-primary" id="photo-export-geojson">GeoJSON</button>
-                <button class="btn btn-primary" id="photo-export-csv">CSV</button>
-                <button class="btn btn-primary" id="photo-export-kml">KML</button>
-                <button class="btn btn-primary" id="photo-export-kmz">KMZ (with images)</button>
-            </div>
             <div class="form-group mt-8">
-                <label class="checkbox-row"><input type="checkbox" id="photo-thumbs" checked> Embed thumbnails (smaller file)</label>
-                <label class="checkbox-row"><input type="checkbox" id="photo-originals"> Embed original photos (larger file)</label>
+                <label class="checkbox-row"><input type="radio" name="photo-size" value="thumbnail" checked> Thumbnails (smaller, faster)</label>
+                <label class="checkbox-row"><input type="radio" name="photo-size" value="full"> Full-size originals (larger file)</label>
+            </div>
+            <div style="text-align:right; margin-top:12px;">
+                <button class="btn btn-primary" id="photo-ok-btn">OK — Add to Map</button>
             </div>
         </div>`;
 
@@ -1263,11 +1261,10 @@ async function openPhotoMapper() {
             // Prevent double-click: button is inside drop zone, so stop propagation
             overlay.querySelector('#photo-btn').addEventListener('click', (e) => {
                 e.stopPropagation();
-                fileInput.value = ''; // reset so re-selecting same files fires change
+                fileInput.value = '';
                 fileInput.click();
             });
             dropZone.addEventListener('click', (e) => {
-                // Only trigger if clicking the zone itself, not child buttons/inputs
                 if (e.target === dropZone || e.target.tagName === 'P' || e.target.tagName === 'DIV') {
                     fileInput.value = '';
                     fileInput.click();
@@ -1282,37 +1279,20 @@ async function openPhotoMapper() {
                 processPhotoFiles(Array.from(e.dataTransfer.files), overlay);
             });
 
-            // Use addEventListener (more reliable on iOS than .onchange)
             fileInput.addEventListener('change', () => {
                 if (fileInput.files.length > 0) {
-                    // Clone FileList immediately — iOS can invalidate it
                     const files = Array.from(fileInput.files);
                     processPhotoFiles(files, overlay);
                 }
             });
 
-            // Export buttons
-            overlay.querySelector('#photo-export-geojson')?.addEventListener('click', async () => {
-                const ds = photoMapper.getDataset();
-                if (ds) { await exportDataset(ds, 'geojson'); }
-            });
-            overlay.querySelector('#photo-export-csv')?.addEventListener('click', async () => {
-                const ds = photoMapper.getDataset();
-                if (ds) { await exportDataset(ds, 'csv'); }
-            });
-            overlay.querySelector('#photo-export-kml')?.addEventListener('click', async () => {
-                const ds = photoMapper.getDataset();
-                if (ds) { await exportDataset(ds, 'kml'); }
-            });
-            overlay.querySelector('#photo-export-kmz')?.addEventListener('click', async () => {
-                const ds = photoMapper.getDataset();
-                if (!ds) return;
-                const useOriginals = overlay.querySelector('#photo-originals').checked;
-                await exportDataset(ds, 'kmz', {
-                    photos: photoMapper.getPhotosForExport(),
-                    embedThumbnails: !useOriginals,
-                    skipFieldSelection: true
-                });
+            // OK button — store size preference and close
+            overlay.querySelector('#photo-ok-btn')?.addEventListener('click', () => {
+                const useFullSize = overlay.querySelector('input[name="photo-size"][value="full"]')?.checked;
+                // Store the preference so exports can use it
+                photoMapper._useFullSize = !!useFullSize;
+                close();
+                showToast('Photos added to map. Use Export to save in any format.', 'success');
             });
         }
     });
@@ -1771,6 +1751,101 @@ function fixAGOL() {
 }
 
 // ============================
+// Rename Layer
+// ============================
+function renameLayer(layerId, el) {
+    const layer = getLayers().find(l => l.id === layerId);
+    if (!layer) return;
+
+    // If inline element passed, do inline editing
+    if (el && el.nodeType) {
+        startInlineEdit(el, layer.name, (newName) => {
+            newName = newName.trim();
+            if (newName && newName !== layer.name) {
+                layer.name = newName;
+                renderLayerList();
+                renderOutputPanel();
+                showToast(`Layer renamed to "${newName}"`, 'success', { duration: 2000 });
+            }
+        });
+        return;
+    }
+
+    // Fallback: prompt
+    const newName = prompt('Rename layer:', layer.name);
+    if (newName && newName.trim() && newName.trim() !== layer.name) {
+        layer.name = newName.trim();
+        renderLayerList();
+        renderOutputPanel();
+        showToast(`Layer renamed to "${layer.name}"`, 'success', { duration: 2000 });
+    }
+}
+
+// ============================
+// Rename Field
+// ============================
+function renameField(fieldName, el) {
+    const layer = getActiveLayer();
+    if (!layer) return;
+    const field = layer.schema?.fields?.find(f => f.name === fieldName);
+    if (!field) return;
+
+    const currentName = field.outputName || field.name;
+
+    if (el && el.nodeType) {
+        startInlineEdit(el, currentName, (newName) => {
+            newName = newName.trim();
+            if (newName && newName !== currentName) {
+                field.outputName = newName;
+                renderFieldList();
+                renderOutputPanel();
+                showToast(`Field renamed to "${newName}"`, 'success', { duration: 2000 });
+            }
+        });
+        return;
+    }
+
+    const newName = prompt('Rename field output name:', currentName);
+    if (newName && newName.trim() && newName.trim() !== currentName) {
+        field.outputName = newName.trim();
+        renderFieldList();
+        renderOutputPanel();
+        showToast(`Field renamed to "${field.outputName}"`, 'success', { duration: 2000 });
+    }
+}
+
+/**
+ * Inline editing helper — replaces element text with an input
+ */
+function startInlineEdit(el, currentValue, onSave) {
+    if (el.querySelector('input')) return; // already editing
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = currentValue;
+    input.className = 'inline-rename-input';
+    input.style.cssText = 'width:100%;padding:1px 4px;font-size:inherit;font-weight:inherit;border:1px solid var(--primary);border-radius:3px;background:var(--bg-surface);color:var(--text);outline:none;';
+
+    const originalText = el.textContent;
+    el.textContent = '';
+    el.appendChild(input);
+    input.focus();
+    input.select();
+
+    const finish = () => {
+        const val = input.value;
+        el.textContent = val || originalText;
+        onSave(val);
+    };
+
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); finish(); }
+        if (e.key === 'Escape') { el.textContent = originalText; }
+    });
+    input.addEventListener('blur', finish, { once: true });
+}
+
+// ============================
 // Section toggle
 // ============================
 window.toggleSection = function(header) {
@@ -1796,6 +1871,7 @@ window.app = {
         if (ok) { removeLayer(id); mapManager.removeLayer(id); refreshUI(); }
     },
     toggleField, selectAllFields, filterFields,
+    renameLayer, renameField,
     doExport,
     fixAGOL,
     showDataTable,
@@ -1814,7 +1890,8 @@ window.app = {
     openClip,
     openPhotoMapper: openPhotoMapper,
     openArcGISImporter: openArcGISImporter,
-    openCoordinatesModal: openCoordinatesModal
+    openCoordinatesModal: openCoordinatesModal,
+    mergeLayers: handleMergeLayers
 };
 
 // Subscribe to logs for panel updates
