@@ -34,6 +34,8 @@ document.addEventListener('DOMContentLoaded', () => {
     setupDragDrop();
     checkMobile();
     window.addEventListener('resize', checkMobile);
+    // Ensure Leaflet recalculates size after layout settles
+    setTimeout(() => { mapManager.map?.invalidateSize(); }, 100);
     logger.info('App', 'App ready');
 });
 
@@ -432,6 +434,12 @@ function renderDataPrepTools() {
 // ============================
 function showMobileContent(tab) {
     document.querySelectorAll('.mobile-content').forEach(el => el.classList.add('hidden'));
+    if (tab === 'map') {
+        // All panels hidden — map is visible underneath
+        // Recalculate map size in case container was obscured
+        setTimeout(() => { mapManager.map?.invalidateSize(); }, 50);
+        return;
+    }
     const panel = document.getElementById(`mobile-${tab}`);
     if (panel) {
         panel.classList.remove('hidden');
@@ -453,24 +461,27 @@ function renderMobileDataPanel() {
     const layers = getLayers();
     const layer = getActiveLayer();
 
-    let html = `<h3 style="margin-bottom:8px;">Layers</h3>`;
+    let html = `<h3>Layers</h3>`;
     if (layers.length === 0) {
-        html += `<div class="empty-state"><p>No layers.</p>
-            <button class="btn btn-primary" id="btn-import-mobile">Import Files</button></div>`;
+        html += `<div class="empty-state"><p>No layers loaded</p>
+            <button class="btn btn-primary btn-sm" id="btn-import-mobile">📂 Import Files</button></div>`;
     } else {
+        html += `<div style="display:flex;flex-direction:column;gap:2px;">`;
         html += layers.map(l => `
             <div class="layer-item ${l.id === layer?.id ? 'active' : ''}" onclick="window.app.setActiveLayer('${l.id}')">
-                <span>${l.type === 'spatial' ? '🗺️' : '📊'}</span>
+                <span style="font-size:14px">${l.type === 'spatial' ? '🗺️' : '📊'}</span>
                 <div class="layer-info">
                     <div class="layer-name">${l.name}</div>
                     <div class="layer-meta">${l.schema?.featureCount || 0} items · ${l.schema?.fields?.length || 0} fields</div>
                 </div>
             </div>
         `).join('');
+        html += `</div>`;
     }
 
     if (layer) {
-        html += `<h3 style="margin:12px 0 8px;">Fields</h3>`;
+        html += `<h3 style="margin-top:10px;">Fields</h3>`;
+        html += `<div style="display:flex;flex-direction:column;gap:1px;">`;
         html += (layer.schema?.fields || []).map(f => `
             <div class="field-item">
                 <input type="checkbox" ${f.selected ? 'checked' : ''} onchange="window.app.toggleField('${f.name}', this.checked)">
@@ -478,6 +489,7 @@ function renderMobileDataPanel() {
                 <span class="field-type">${f.type}</span>
             </div>
         `).join('');
+        html += `</div>`;
     }
 
     el.innerHTML = html;
@@ -495,34 +507,51 @@ function renderMobilePrepPanel() {
         return;
     }
     el.innerHTML = `
-        <h3 style="margin-bottom:8px;">Data Prep Tools</h3>
-        <div style="display:flex; flex-wrap:wrap; gap:6px;">
-            <button class="btn btn-secondary" onclick="window.app.openSplitColumn()">Split Column</button>
-            <button class="btn btn-secondary" onclick="window.app.openCombineColumns()">Combine</button>
-            <button class="btn btn-secondary" onclick="window.app.openTemplateBuilder()">Template Builder</button>
-            <button class="btn btn-secondary" onclick="window.app.openReplaceClean()">Replace/Clean</button>
-            <button class="btn btn-secondary" onclick="window.app.openTypeConvert()">Type Convert</button>
-            <button class="btn btn-secondary" onclick="window.app.openFilterBuilder()">Filter</button>
-            <button class="btn btn-secondary" onclick="window.app.openDeduplicate()">Deduplicate</button>
-            <button class="btn btn-secondary" onclick="window.app.openJoinTool()">Join</button>
-            <button class="btn btn-secondary" onclick="window.app.openValidation()">Validate</button>
-            <button class="btn btn-secondary" onclick="window.app.addUID()">Add UID</button>
+        <h3>Data Prep</h3>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;">
+            <button class="btn btn-secondary btn-sm" onclick="window.app.openSplitColumn()">Split Column</button>
+            <button class="btn btn-secondary btn-sm" onclick="window.app.openCombineColumns()">Combine</button>
+            <button class="btn btn-secondary btn-sm" onclick="window.app.openTemplateBuilder()">Template</button>
+            <button class="btn btn-secondary btn-sm" onclick="window.app.openReplaceClean()">Replace/Clean</button>
+            <button class="btn btn-secondary btn-sm" onclick="window.app.openTypeConvert()">Type Convert</button>
+            <button class="btn btn-secondary btn-sm" onclick="window.app.openFilterBuilder()">Filter</button>
+            <button class="btn btn-secondary btn-sm" onclick="window.app.openDeduplicate()">Dedup</button>
+            <button class="btn btn-secondary btn-sm" onclick="window.app.openJoinTool()">Join</button>
+            <button class="btn btn-secondary btn-sm" onclick="window.app.openValidation()">Validate</button>
+            <button class="btn btn-secondary btn-sm" onclick="window.app.addUID()">Add UID</button>
         </div>`;
 }
 
 function renderMobileToolsPanel() {
     const el = document.getElementById('mobile-tools');
     if (!el) return;
+    const basemapOptions = [
+        { value: 'osm', label: 'OpenStreetMap' },
+        { value: 'positron', label: 'Positron' },
+        { value: 'dark', label: 'Dark' },
+        { value: 'topo', label: 'Topo' },
+        { value: 'none', label: 'None' }
+    ];
+    const currentBasemap = document.getElementById('basemap-select')?.value || 'osm';
     el.innerHTML = `
-        <h3 style="margin-bottom:8px;">GIS Tools</h3>
-        <div style="display:flex; flex-wrap:wrap; gap:6px;">
-            <button class="btn btn-secondary" onclick="window.app.openBuffer()">Buffer</button>
-            <button class="btn btn-secondary" onclick="window.app.openSimplify()">Simplify</button>
-            <button class="btn btn-secondary" onclick="window.app.openClip()">Clip to Extent</button>
-            <button class="btn btn-secondary" onclick="window.app.openPhotoMapper()">Photo Mapper</button>
-            <button class="btn btn-secondary" onclick="window.app.openArcGISImporter()">ArcGIS REST Import</button>
-            <button class="btn btn-secondary" onclick="window.app.openCoordinatesModal()">Coordinates</button>
-        </div>`;
+        <h3>GIS Tools</h3>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;">
+            <button class="btn btn-secondary btn-sm" onclick="window.app.openBuffer()">Buffer</button>
+            <button class="btn btn-secondary btn-sm" onclick="window.app.openSimplify()">Simplify</button>
+            <button class="btn btn-secondary btn-sm" onclick="window.app.openClip()">Clip to Extent</button>
+            <button class="btn btn-secondary btn-sm" onclick="window.app.openPhotoMapper()">📷 Photo Map</button>
+            <button class="btn btn-secondary btn-sm" onclick="window.app.openArcGISImporter()">🌐 ArcGIS REST</button>
+            <button class="btn btn-secondary btn-sm" onclick="window.app.openCoordinatesModal()">📍 Coordinates</button>
+        </div>
+        <h3 style="margin-top:10px;">Basemap</h3>
+        <select id="basemap-select-mobile" style="width:100%;">
+            ${basemapOptions.map(o => `<option value="${o.value}" ${o.value === currentBasemap ? 'selected' : ''}>${o.label}</option>`).join('')}
+        </select>`;
+    el.querySelector('#basemap-select-mobile')?.addEventListener('change', (e) => {
+        mapManager.setBasemap(e.target.value);
+        const desktopSelect = document.getElementById('basemap-select');
+        if (desktopSelect) desktopSelect.value = e.target.value;
+    });
 }
 
 function renderMobileExportPanel() {
@@ -535,15 +564,15 @@ function renderMobileExportPanel() {
     }
     const formats = getAvailableFormats(layer);
     el.innerHTML = `
-        <h3 style="margin-bottom:8px;">Export</h3>
+        <h3>Export</h3>
         <label class="toggle mb-8">
             <input type="checkbox" id="agol-toggle-mobile" ${getState().agolCompatMode ? 'checked' : ''}>
             <span class="toggle-track"></span>
             <span>AGOL Compatible</span>
         </label>
-        <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:12px;">
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;">
             ${formats.map(f =>
-                `<button class="btn btn-primary" onclick="window.app.doExport('${f.key}')">${f.label}</button>`
+                `<button class="btn btn-primary btn-sm" onclick="window.app.doExport('${f.key}')">${f.label}</button>`
             ).join('')}
         </div>`;
     el.querySelector('#agol-toggle-mobile')?.addEventListener('change', () => {

@@ -13,7 +13,7 @@ const state = {
     agolCompatMode: false,
     ui: {
         isMobile: window.innerWidth < 768,
-        activeTab: 'data',     // mobile tabs: data | prep | tools | export
+        activeTab: 'map',      // mobile tabs: map | data | prep | tools | export
         leftPanelOpen: true,
         rightPanelOpen: true,
         logsOpen: false,

@@ -52,8 +52,8 @@ class MapManager {
         }
 
         this.map = L.map(containerId, {
-            center: [20, 0],
-            zoom: 2,
+            center: [39.32, -111.09],
+            zoom: 7,
             zoomControl: true,
             attributionControl: true
         });

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>GIS Toolbox</title>
 
     <!-- Leaflet CSS -->
@@ -28,23 +28,23 @@
         </div>
         <div class="header-center">
             <button class="btn btn-primary btn-sm" id="btn-import">
-                <span class="btn-icon-text">📂</span> Import
+                <span class="btn-icon-text">📂</span><span>Import</span>
             </button>
             <button class="btn btn-secondary btn-sm" id="btn-photo-mapper">
-                <span class="btn-icon-text">📷</span> Photos
+                <span class="btn-icon-text">📷</span><span>Photos</span>
             </button>
             <button class="btn btn-secondary btn-sm" id="btn-arcgis">
-                <span class="btn-icon-text">🌐</span> ArcGIS
+                <span class="btn-icon-text">🌐</span><span>ArcGIS</span>
             </button>
             <button class="btn btn-secondary btn-sm" id="btn-coordinates">
-                <span class="btn-icon-text">📍</span> Coords
+                <span class="btn-icon-text">📍</span><span>Coords</span>
             </button>
             <div class="header-sep"></div>
             <button class="btn btn-ghost btn-sm" id="btn-undo" disabled title="Undo">↩</button>
             <button class="btn btn-ghost btn-sm" id="btn-redo" disabled title="Redo">↪</button>
             <button class="btn btn-secondary btn-sm hidden" id="btn-merge">Merge Layers</button>
             <button class="btn btn-primary btn-sm hidden" id="btn-export">
-                <span class="btn-icon-text">💾</span> Export
+                <span class="btn-icon-text">💾</span><span>Export</span>
             </button>
         </div>
         <div class="header-right">
@@ -158,7 +158,11 @@
     <!-- MOBILE BOTTOM NAV                -->
     <!-- ================================ -->
     <nav class="mobile-nav">
-        <div class="mobile-nav-item active" data-tab="data">
+        <div class="mobile-nav-item active" data-tab="map">
+            <span>🗺️</span>
+            <span>Map</span>
+        </div>
+        <div class="mobile-nav-item" data-tab="data">
             <span>📊</span>
             <span>Data</span>
         </div>
