@@ -164,7 +164,7 @@ class MapManager {
 
     getBasemaps() { return BASEMAPS; }
 
-    addLayer(dataset, colorIndex = 0) {
+    addLayer(dataset, colorIndex = 0, { fit = false } = {}) {
         if (!this.map || !dataset.geojson) return;
 
         // Remove existing layer for this dataset
@@ -242,14 +242,16 @@ class MapManager {
         this.dataLayers.set(dataset.id, geojsonLayer);
         this._layerNames.set(dataset.id, dataset.name);
 
-        // Fit bounds
-        try {
-            const bounds = geojsonLayer.getBounds();
-            if (bounds.isValid()) {
-                this.map.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
+        // Fit bounds only on initial import
+        if (fit) {
+            try {
+                const bounds = geojsonLayer.getBounds();
+                if (bounds.isValid()) {
+                    this.map.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
+                }
+            } catch (e) {
+                logger.warn('Map', 'Could not fit bounds', { error: e.message });
             }
-        } catch (e) {
-            logger.warn('Map', 'Could not fit bounds', { error: e.message });
         }
 
         logger.info('Map', 'Layer added', { name: dataset.name, features: features.length });
@@ -374,6 +376,7 @@ class MapManager {
                 if (hit) {
                     results.push({
                         feature: sub.feature,
+                        featureIndex: sub._featureIndex,
                         leafletLayer: sub,
                         layerId,
                         layerName: this._layerNames.get(layerId) || layerId,
@@ -420,7 +423,11 @@ class MapManager {
             </div>`;
         }
 
-        const html = layerLabel + navHtml + bodyHtml;
+        const editBtn = `<div style="margin-top:6px;border-top:1px solid var(--border);padding-top:4px;text-align:right;">
+            <button onclick="window._mapPopupEdit()" style="background:var(--primary);color:#fff;border:none;border-radius:4px;padding:3px 12px;cursor:pointer;font-size:12px;">✏️ Edit</button>
+        </div>`;
+
+        const html = layerLabel + navHtml + bodyHtml + editBtn;
 
         // Highlight the current feature
         this.highlightFeature(hit.leafletLayer, hit.layerColor);

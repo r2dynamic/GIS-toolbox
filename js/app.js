@@ -45,6 +45,16 @@ function boot() {
         mapManager._renderCyclePopup();
     };
 
+    // Edit feature from popup
+    window._mapPopupEdit = () => {
+        const hits = mapManager._popupHits;
+        const idx = mapManager._popupIndex;
+        if (!hits || !hits[idx]) return;
+        const hit = hits[idx];
+        mapManager.map.closePopup();
+        openFeatureEditor(hit.layerId, hit.featureIndex);
+    };
+
     logger.info('App', 'App ready');
 
     // Show tool guide splash on every app open
@@ -126,7 +136,7 @@ function setupDragDrop() {
             const result = await photoMapper.processPhotos(imageFiles);
             if (result?.dataset) {
                 addLayer(result.dataset);
-                mapManager.addLayer(result.dataset, getLayers().indexOf(result.dataset));
+                mapManager.addLayer(result.dataset, getLayers().indexOf(result.dataset), { fit: true });
                 refreshUI();
                 showToast(`Mapped ${result.withGPS} photo(s) with GPS`, 'success');
             }
@@ -160,7 +170,7 @@ async function handleFileImport(files) {
 
         for (const ds of datasets) {
             addLayer(ds);
-            mapManager.addLayer(ds, getLayers().indexOf(ds));
+            mapManager.addLayer(ds, getLayers().indexOf(ds), { fit: true });
         }
 
         if (datasets.length > 0) {
@@ -1321,7 +1331,7 @@ async function openBuffer() {
                 try {
                     const result = await gisTools.bufferFeatures(getWorkingDataset(layer), dist, units);
                     addLayer(result);
-                    mapManager.addLayer(result, getLayers().indexOf(result));
+                    mapManager.addLayer(result, getLayers().indexOf(result), { fit: true });
                     showToast('Buffer complete', 'success');
                     refreshUI();
                 } catch (e) {
@@ -1353,7 +1363,7 @@ async function openSimplify() {
                 try {
                     const { dataset, stats } = await gisTools.simplifyFeatures(getWorkingDataset(layer), tol);
                     addLayer(dataset);
-                    mapManager.addLayer(dataset, getLayers().indexOf(dataset));
+                    mapManager.addLayer(dataset, getLayers().indexOf(dataset), { fit: true });
                     showToast(`Simplified: ${stats.verticesBefore} → ${stats.verticesAfter} vertices`, 'success');
                     refreshUI();
                 } catch (e) {
@@ -1385,7 +1395,7 @@ async function openClip() {
                 try {
                     const result = await gisTools.clipFeatures(getWorkingDataset(layer), bbox.geometry);
                     addLayer(result);
-                    mapManager.addLayer(result, getLayers().indexOf(result));
+                    mapManager.addLayer(result, getLayers().indexOf(result), { fit: true });
                     showToast(`Clipped: ${result.geojson.features.length} features`, 'success');
                     refreshUI();
                 } catch (e) {
@@ -1548,7 +1558,7 @@ function layerOptions(filterType = null) {
 
 function addResultLayer(dataset) {
     addLayer(dataset);
-    mapManager.addLayer(dataset, getLayers().indexOf(dataset));
+    mapManager.addLayer(dataset, getLayers().indexOf(dataset), { fit: true });
     refreshUI();
 }
 
@@ -2424,7 +2434,7 @@ async function processPhotoFiles(files, modalOverlay) {
         // Add photos as a layer on the map
         if (result.dataset) {
             addLayer(result.dataset);
-            mapManager.addLayer(result.dataset, getLayers().indexOf(result.dataset));
+            mapManager.addLayer(result.dataset, getLayers().indexOf(result.dataset), { fit: true });
             refreshUI();
         }
 
@@ -2745,7 +2755,7 @@ async function openArcGISImporter() {
                             });
                             if (dataset) {
                                 addLayer(dataset);
-                                mapManager.addLayer(dataset, getLayers().indexOf(dataset));
+                                mapManager.addLayer(dataset, getLayers().indexOf(dataset), { fit: true });
                                 const count = dataset.type === 'spatial' ? dataset.geojson.features.length : dataset.rows.length;
                                 showToast(`Imported ${count.toLocaleString()} features: ${layerMeta.name}`, 'success');
                                 refreshUI();
@@ -3038,7 +3048,7 @@ async function openArcGISImporter() {
 
                     if (dataset) {
                         addLayer(dataset);
-                        mapManager.addLayer(dataset, getLayers().indexOf(dataset));
+                        mapManager.addLayer(dataset, getLayers().indexOf(dataset), { fit: true });
                         const count = dataset.type === 'spatial' ? dataset.geojson.features.length : dataset.rows.length;
                         showToast(`Imported ${count.toLocaleString()} features from ArcGIS`, 'success');
                         refreshUI();
@@ -3180,7 +3190,7 @@ async function handleMergeLayers() {
     if (!ok) return;
     const merged = mergeDatasets(layers);
     addLayer(merged);
-    mapManager.addLayer(merged, getLayers().indexOf(merged));
+    mapManager.addLayer(merged, getLayers().indexOf(merged), { fit: true });
     showToast(`Merged ${layers.length} layers → ${merged.geojson.features.length} features`, 'success');
     refreshUI();
 }
@@ -3215,6 +3225,81 @@ function handleRedo() {
             });
         }
     }
+}
+
+// ============================
+// Feature Editor — edit a single feature's attributes from popup
+// ============================
+function openFeatureEditor(layerId, featureIndex) {
+    const layers = getLayers();
+    const layer = layers.find(l => l.id === layerId);
+    if (!layer || layer.type !== 'spatial') return showToast('Layer not found', 'warning');
+
+    const feature = layer.geojson.features[featureIndex];
+    if (!feature) return showToast('Feature not found', 'warning');
+
+    const props = feature.properties || {};
+    const fields = Object.keys(props).filter(k => !k.startsWith('_'));
+
+    const rowsHtml = fields.map(f => {
+        let val = props[f];
+        if (val != null && typeof val === 'object') val = JSON.stringify(val);
+        return `<div class="form-group" style="margin-bottom:6px;">
+            <label style="font-size:11px;color:var(--text-muted);">${f}</label>
+            <input type="text" class="feat-edit-input" data-field="${f}" value="${val != null ? String(val).replace(/"/g, '&quot;') : ''}" style="width:100%;font-size:13px;">
+        </div>`;
+    }).join('');
+
+    const geomType = feature.geometry?.type || 'Unknown';
+    const header = `<div class="text-xs text-muted mb-8" style="border-bottom:1px solid var(--border);padding-bottom:4px;margin-bottom:8px;">
+        <strong>${layer.name}</strong> · Feature #${featureIndex + 1} · ${geomType}
+    </div>`;
+
+    const html = header + `<div style="max-height:400px;overflow-y:auto;">${rowsHtml}</div>`;
+
+    showModal('Edit Feature', html, {
+        width: '420px',
+        footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Save</button>',
+        onMount: (overlay, close) => {
+            // Focus first input
+            setTimeout(() => overlay.querySelector('.feat-edit-input')?.focus(), 50);
+
+            overlay.querySelector('.cancel-btn').onclick = () => close();
+            overlay.querySelector('.apply-btn').onclick = () => {
+                // Save snapshot before editing
+                saveSnapshot(layer.id, 'Edit Feature', layer.geojson);
+
+                // Read all inputs and update properties
+                overlay.querySelectorAll('.feat-edit-input').forEach(input => {
+                    const field = input.dataset.field;
+                    const newVal = input.value;
+                    const oldVal = props[field];
+
+                    // Coerce to original type
+                    if (oldVal === null || oldVal === undefined) {
+                        props[field] = newVal === '' ? null : newVal;
+                    } else if (typeof oldVal === 'number') {
+                        props[field] = newVal === '' ? null : (isNaN(Number(newVal)) ? newVal : Number(newVal));
+                    } else if (typeof oldVal === 'boolean') {
+                        props[field] = newVal === 'true' || newVal === '1';
+                    } else {
+                        props[field] = newVal;
+                    }
+                });
+
+                // Refresh map and UI
+                import('./core/data-model.js').then(dm => {
+                    layer.schema = dm.analyzeSchema(layer.geojson);
+                    bus.emit('layer:updated', layer);
+                    bus.emit('layers:changed', getLayers());
+                    mapManager.addLayer(layer, getLayers().indexOf(layer));
+                    refreshUI();
+                });
+                showToast('Feature updated', 'success');
+                close();
+            };
+        }
+    });
 }
 
 function showDataTable() {
@@ -3714,6 +3799,9 @@ function showMapContextMenu({ latlng, originalEvent, layerId, featureIndex, feat
             if (nearby.length > 0) mapManager._showMultiPopup(nearby, latlng);
             else mapManager.showPopup(feature, null, latlng);
         }});
+        items.push({ icon: '✏️', label: 'Edit feature', action: () => {
+            openFeatureEditor(layerId, featureIndex);
+        }});
     }
 
     // Coordinates
@@ -3868,7 +3956,8 @@ window.app = {
     clearSelection,
     selectAllFeatures,
     invertSelection,
-    deleteSelectedFeatures
+    deleteSelectedFeatures,
+    openFeatureEditor
 };
 
 // Subscribe to logs for panel updates
