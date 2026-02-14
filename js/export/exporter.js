@@ -10,6 +10,7 @@ import { exportExcel } from './excel-exporter.js';
 import { exportKML } from './kml-exporter.js';
 import { exportKMZ } from './kmz-exporter.js';
 import { exportJSON } from './json-exporter.js';
+import { exportShapefile } from './shapefile-exporter.js';
 
 const EXPORTERS = {
     geojson: { fn: exportGeoJSON, label: 'GeoJSON', ext: '.geojson', spatial: true },
@@ -17,7 +18,8 @@ const EXPORTERS = {
     csv: { fn: exportCSV, label: 'CSV', ext: '.csv', spatial: false },
     xlsx: { fn: exportExcel, label: 'Excel (.xlsx)', ext: '.xlsx', spatial: false },
     kml: { fn: exportKML, label: 'KML', ext: '.kml', spatial: true },
-    kmz: { fn: exportKMZ, label: 'KMZ', ext: '.kmz', spatial: true }
+    kmz: { fn: exportKMZ, label: 'KMZ', ext: '.kmz', spatial: true },
+    shapefile: { fn: exportShapefile, label: 'Shapefile (.shp)', ext: '.zip', spatial: true }
 };
 
 /**

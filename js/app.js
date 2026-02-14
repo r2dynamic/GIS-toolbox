@@ -37,6 +37,9 @@ function boot() {
     // Ensure Leaflet recalculates size after layout settles
     setTimeout(() => { mapManager.map?.invalidateSize(); }, 100);
     logger.info('App', 'App ready');
+
+    // Show tool guide splash on every app open
+    setTimeout(() => showToolInfo(), 300);
 }
 // Handle both: module loaded before or after DOMContentLoaded
 if (document.readyState === 'loading') {
@@ -208,6 +211,9 @@ function setupEventListeners() {
 
     // Logs
     document.getElementById('btn-logs')?.addEventListener('click', toggleLogs);
+
+    // Info / Tool Guide
+    document.getElementById('btn-info')?.addEventListener('click', showToolInfo);
 
     // Merge layers
     document.getElementById('btn-merge')?.addEventListener('click', handleMergeLayers);
@@ -1951,6 +1957,97 @@ window.toggleSection = function(header) {
 };
 
 // ============================
+// Tool Info / Help Guide
+// ============================
+function showToolInfo() {
+    const sections = [
+        {
+            title: 'Import & Sources',
+            tools: [
+                ['📂 Import', 'Drag-and-drop or browse to load GeoJSON, CSV, Excel, KML, KMZ, Shapefile (ZIP), or JSON files.'],
+                ['📷 Photos', 'Import geotagged photos. Extracts GPS coordinates and EXIF data, maps them as points.'],
+                ['🌐 ArcGIS REST', 'Import features directly from an ArcGIS REST service URL (Feature/Map Server).'],
+                ['📍 Coordinates', 'Convert coordinates between formats — Decimal Degrees, DMS, UTM, and MGRS.']
+            ]
+        },
+        {
+            title: 'Layers & Fields',
+            tools: [
+                ['Layers Panel', 'View, select, toggle visibility, zoom to, rename, or remove imported layers.'],
+                ['Fields Panel', 'View, search, select/deselect, rename, or add new fields on the active layer.'],
+                ['Merge Layers', 'Combine all loaded layers into a single layer with a source_file field.'],
+                ['Data Table', 'View the raw attribute table for the active layer.']
+            ]
+        },
+        {
+            title: 'Data Prep',
+            tools: [
+                ['Split Column', 'Split a field into multiple new fields by a delimiter (comma, space, etc.).'],
+                ['Combine', 'Merge two or more fields into a single field with a separator.'],
+                ['Template', 'Build a new field from a text template using values from existing fields.'],
+                ['Replace/Clean', 'Find and replace text, trim whitespace, or clean values in a field.'],
+                ['Type Convert', 'Change a field\'s data type (text → number, number → text, etc.).'],
+                ['Filter', 'Keep or remove rows based on conditions (equals, contains, greater than, etc.).'],
+                ['Dedup', 'Remove duplicate rows based on one or more key fields.'],
+                ['Join', 'Join two layers together on a matching key field.'],
+                ['Validate', 'Run validation rules on fields (required, min/max, regex pattern, etc.).'],
+                ['Add UID', 'Add a unique sequential ID field to every row.']
+            ]
+        },
+        {
+            title: 'GIS Tools',
+            tools: [
+                ['Buffer', 'Create buffer polygons around point/line/polygon features at a set distance.'],
+                ['Simplify', 'Reduce vertex count on geometries to shrink file size while preserving shape.'],
+                ['Clip to Extent', 'Clip features to the current visible map area.']
+            ]
+        },
+        {
+            title: 'Export',
+            tools: [
+                ['GeoJSON', 'Export spatial data as a .geojson file.'],
+                ['CSV', 'Export attributes as a comma-separated .csv file.'],
+                ['Excel', 'Export attributes as an .xlsx spreadsheet.'],
+                ['KML', 'Export spatial data as a .kml file (Google Earth).'],
+                ['KMZ', 'Export as .kmz (compressed KML), can include embedded photos.'],
+                ['JSON', 'Export raw data as a .json file.'],
+                ['Shapefile', 'Export spatial data as a zipped Shapefile (.shp).']
+            ]
+        },
+        {
+            title: 'ArcGIS REST Import',
+            tools: [
+                ['Overview', 'Pull features directly from any public or accessible ArcGIS REST endpoint into the toolbox — no download or login required.'],
+                ['How to use', 'Paste a Feature Server or Map Server layer URL (e.g. .../FeatureServer/0). The tool auto-detects the service, queries all features, and imports them as a spatial layer with full attributes.'],
+                ['Supported', 'Works with Feature Servers, Map Servers, and individual layer endpoints. Handles paginated services that return features in batches automatically.']
+            ]
+        },
+        {
+            title: 'Other',
+            tools: [
+                ['AGOL Compatibility', 'Check and auto-fix field names/types for ArcGIS Online compatibility.']
+            ]
+        }
+    ];
+
+    const html = sections.map(s => `
+        <div style="margin-bottom:16px;">
+            <div style="font-weight:700;font-size:14px;color:var(--gold-light);margin-bottom:6px;border-bottom:1px solid var(--border);padding-bottom:4px;">${s.title}</div>
+            <div style="display:flex;flex-direction:column;gap:4px;">
+                ${s.tools.map(([name, desc]) => `
+                    <div style="display:flex;gap:8px;align-items:baseline;">
+                        <span style="font-weight:600;white-space:nowrap;min-width:110px;color:var(--text);">${name}</span>
+                        <span style="color:var(--text-muted);font-size:13px;">${desc}</span>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `).join('');
+
+    showModal('GIS Toolbox — Tool Guide', `<div style="max-height:70vh;overflow-y:auto;">${html}</div>`, { width: '560px' });
+}
+
+// ============================
 // Global app API (for onclick handlers in HTML)
 // ============================
 window.app = {
@@ -1988,7 +2085,8 @@ window.app = {
     openPhotoMapper: openPhotoMapper,
     openArcGISImporter: openArcGISImporter,
     openCoordinatesModal: openCoordinatesModal,
-    mergeLayers: handleMergeLayers
+    mergeLayers: handleMergeLayers,
+    showToolInfo
 };
 
 // Subscribe to logs for panel updates
