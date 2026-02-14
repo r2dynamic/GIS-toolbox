@@ -64,11 +64,18 @@ class MapManager {
         this.map = null;
         this.basemapLayer = null;
         this.dataLayers = new Map(); // layerId -> L.geoJSON
+        this._layerNames = new Map(); // layerId -> display name
         this.clusterGroups = new Map();
-        this.currentBasemap = 'osm';
+        this.currentBasemap = 'voyager';
         this.drawLayer = null;
         this.highlightLayer = null; // currently highlighted feature layer
         this._originalStyles = new Map(); // layer -> original style for unhighlight
+
+        // ── Feature selection state ──
+        this._selections = new Map();       // layerId -> Set<featureIndex>
+        this._selectionLayers = new Map();   // layerId -> L.layerGroup of selection highlights
+        this._selectionMode = false;        // true when selection tool is active
+        this._featureIndexMap = new Map();   // leafletLayer._leaflet_id -> { layerId, featureIndex }
     }
 
     init(containerId) {
@@ -84,15 +91,30 @@ class MapManager {
             attributionControl: true
         });
 
-        this.setBasemap('osm');
+        this.setBasemap('voyager');
 
         // Error handling for tiles
         this.map.on('tileerror', (e) => {
             logger.warn('Map', 'Tile load error', { url: e.tile?.src });
         });
 
-        // Clear highlight when clicking empty map
-        this.map.on('click', () => this.clearHighlight());
+        // Clear highlight when clicking empty map (but don't clear selection)
+        this.map.on('click', () => {
+            if (!this._selectionMode) {
+                this.clearHighlight();
+            }
+        });
+
+        // Right-click on empty map area
+        this.map.on('contextmenu', (e) => {
+            bus.emit('map:contextmenu', {
+                latlng: e.latlng,
+                originalEvent: e.originalEvent,
+                layerId: null,
+                featureIndex: null,
+                feature: null
+            });
+        });
 
         logger.info('Map', 'Map initialized');
         bus.emit('map:ready', this.map);
@@ -175,10 +197,38 @@ class MapManager {
                 });
             },
             onEachFeature: (feature, layer) => {
+                // Store mapping from leaflet layer id to dataset + feature index
+                const featureIndex = features.indexOf(feature);
+                layer._featureIndex = featureIndex;
+                layer._datasetId = dataset.id;
+
                 layer.on('click', (e) => {
                     L.DomEvent.stopPropagation(e);
-                    this.highlightFeature(layer, color);
-                    this.showPopup(feature, layer);
+                    if (this._selectionMode) {
+                        // Selection mode: click toggles selection, shift adds
+                        this._handleSelectionClick(dataset.id, featureIndex, e.originalEvent?.shiftKey, color);
+                    } else {
+                        // Gather all features near this click across all visible layers
+                        const clickLatLng = e.latlng;
+                        const nearby = this._findFeaturesNearClick(clickLatLng);
+                        if (nearby.length > 0) {
+                            this.highlightFeature(layer, color);
+                            this._showMultiPopup(nearby, clickLatLng);
+                        }
+                    }
+                });
+
+                layer.on('contextmenu', (e) => {
+                    L.DomEvent.stopPropagation(e);
+                    L.DomEvent.preventDefault(e);
+                    const latlng = e.latlng;
+                    bus.emit('map:contextmenu', {
+                        latlng,
+                        originalEvent: e.originalEvent,
+                        layerId: dataset.id,
+                        featureIndex,
+                        feature
+                    });
                 });
             }
         });
@@ -190,6 +240,7 @@ class MapManager {
 
         geojsonLayer.addTo(this.map);
         this.dataLayers.set(dataset.id, geojsonLayer);
+        this._layerNames.set(dataset.id, dataset.name);
 
         // Fit bounds
         try {
@@ -210,6 +261,9 @@ class MapManager {
             this.map.removeLayer(this.dataLayers.get(id));
             this.dataLayers.delete(id);
         }
+        this._layerNames.delete(id);
+        // Also clear any selection for this layer
+        this.clearSelection(id);
     }
 
     toggleLayer(id, visible) {
@@ -222,7 +276,21 @@ class MapManager {
         }
     }
 
-    showPopup(feature, layer) {
+    /**
+     * Re-stack Leaflet layers to match the state layers array order.
+     * Layers later in the array are drawn on top.
+     */
+    syncLayerOrder(orderedIds) {
+        for (const id of orderedIds) {
+            const layer = this.dataLayers.get(id);
+            if (layer && this.map.hasLayer(layer)) {
+                layer.bringToFront();
+            }
+        }
+    }
+
+    /** Build the HTML content for a single feature popup */
+    _buildPopupHtml(feature) {
         const props = feature.properties || {};
         let imgHtml = '';
 
@@ -243,12 +311,129 @@ class MapManager {
                 return `<tr><th>${k}</th><td>${val}</td></tr>`;
             }).join('');
         const tableHtml = rows ? `<table>${rows}</table>` : '<em>No attributes</em>';
-        const html = imgHtml + tableHtml;
+        return imgHtml + tableHtml;
+    }
 
-        const popup = layer.bindPopup(html, { maxWidth: 350, maxHeight: 400 }).openPopup();
-
+    showPopup(feature, layer, latlng) {
+        const html = this._buildPopupHtml(feature);
+        // Open popup at click location (or fallback to layer center)
+        const pos = latlng || (layer.getLatLng ? layer.getLatLng() : layer.getBounds?.()?.getCenter());
+        L.popup({ maxWidth: 350, maxHeight: 400 })
+            .setLatLng(pos)
+            .setContent(html)
+            .openOn(this.map);
         // Clear highlight when popup is closed
-        layer.on('popupclose', () => this.clearHighlight(), { once: true });
+        this.map.once('popupclose', () => this.clearHighlight());
+    }
+
+    /**
+     * Find all features near a click point across all visible layers.
+     * Returns array of { feature, layer, layerName, layerId, color }.
+     * Ordered: top layer in state first.
+     */
+    _findFeaturesNearClick(latlng) {
+        const clickPt = this.map.latLngToContainerPoint(latlng);
+        const tolerance = 12; // px
+        const results = [];
+
+        // Get layer order from state (last = top = first in popup)
+        const orderedIds = [];
+        try {
+            // Access state for ordering
+            const layers = bus._listeners?.['layers:changed']
+                ? null : null; // can't access state directly here
+        } catch (_) {}
+
+        // Iterate each data layer
+        for (const [layerId, geojsonLayer] of this.dataLayers) {
+            if (!this.map.hasLayer(geojsonLayer)) continue; // skip hidden
+            const color = geojsonLayer.options?.style?.color || '#2563eb';
+
+            geojsonLayer.eachLayer((sub) => {
+                if (sub._featureIndex === undefined) return;
+                let hit = false;
+                if (sub.getLatLng) {
+                    const pt = this.map.latLngToContainerPoint(sub.getLatLng());
+                    hit = clickPt.distanceTo(pt) <= tolerance + (sub.getRadius?.() || 6);
+                } else if (sub.getBounds) {
+                    // For lines/polygons, check if click is inside bounds first
+                    const bounds = sub.getBounds();
+                    if (bounds.contains(latlng)) {
+                        hit = true;
+                    } else {
+                        // Check if near the border
+                        const ne = this.map.latLngToContainerPoint(bounds.getNorthEast());
+                        const sw = this.map.latLngToContainerPoint(bounds.getSouthWest());
+                        const expanded = L.bounds(
+                            L.point(sw.x - tolerance, ne.y - tolerance),
+                            L.point(ne.x + tolerance, sw.y + tolerance)
+                        );
+                        hit = expanded.contains(clickPt);
+                    }
+                }
+                if (hit) {
+                    results.push({
+                        feature: sub.feature,
+                        leafletLayer: sub,
+                        layerId,
+                        layerName: this._layerNames.get(layerId) || layerId,
+                        layerColor: typeof geojsonLayer.options?.style === 'function'
+                            ? (geojsonLayer.options.style(sub.feature)?.color || '#2563eb')
+                            : (geojsonLayer.options?.style?.color || '#2563eb')
+                    });
+                }
+            });
+        }
+        return results;
+    }
+
+    /**
+     * Show a popup that can cycle through multiple features ("1 of N" arrows).
+     */
+    _showMultiPopup(hits, latlng) {
+        if (hits.length === 0) return;
+        this._popupHits = hits;
+        this._popupIndex = 0;
+        this._popupLatLng = latlng;
+        this._renderCyclePopup();
+    }
+
+    _renderCyclePopup() {
+        const hits = this._popupHits;
+        const idx = this._popupIndex;
+        if (!hits || !hits[idx]) return;
+
+        const hit = hits[idx];
+        const bodyHtml = this._buildPopupHtml(hit.feature);
+        const layerName = hit.layerName || hit.layerId;
+        const layerLabel = `<div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;border-bottom:1px solid var(--border);padding-bottom:3px;">
+            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${hit.layerColor};margin-right:4px;"></span>
+            <strong>${layerName}</strong>
+        </div>`;
+
+        let navHtml = '';
+        if (hits.length > 1) {
+            navHtml = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;font-size:11px;">
+                <button onclick="window._mapPopupNav(-1)" style="background:none;border:1px solid var(--border);color:var(--text);border-radius:3px;padding:1px 8px;cursor:pointer;font-size:13px;">&larr;</button>
+                <span>${idx + 1} of ${hits.length}</span>
+                <button onclick="window._mapPopupNav(1)" style="background:none;border:1px solid var(--border);color:var(--text);border-radius:3px;padding:1px 8px;cursor:pointer;font-size:13px;">&rarr;</button>
+            </div>`;
+        }
+
+        const html = layerLabel + navHtml + bodyHtml;
+
+        // Highlight the current feature
+        this.highlightFeature(hit.leafletLayer, hit.layerColor);
+
+        L.popup({ maxWidth: 350, maxHeight: 400, closeOnClick: false })
+            .setLatLng(this._popupLatLng)
+            .setContent(html)
+            .openOn(this.map);
+
+        this.map.once('popupclose', () => {
+            this.clearHighlight();
+            this._popupHits = null;
+        });
     }
 
     /**
@@ -558,8 +743,337 @@ class MapManager {
         return banner;
     }
 
+    // ==========================================
+    // Feature Selection System
+    // ==========================================
+
+    /** Selection highlight style */
+    static get SELECTION_STYLE() {
+        return {
+            color: '#00e5ff',      // cyan
+            weight: 3,
+            opacity: 1,
+            fillColor: '#00e5ff',
+            fillOpacity: 0.35,
+            dashArray: null
+        };
+    }
+    static get SELECTION_POINT_STYLE() {
+        return {
+            radius: 8,
+            fillColor: '#00e5ff',
+            color: '#ffffff',
+            weight: 3,
+            fillOpacity: 1
+        };
+    }
+
+    /**
+     * Enable selection mode — clicking features selects them.
+     * The mode stays active until `exitSelectionMode()` is called.
+     */
+    enterSelectionMode() {
+        this._selectionMode = true;
+        this.map.getContainer().style.cursor = 'pointer';
+        const banner = this._showInteractionBanner(
+            'Selection mode — click features (Shift+click to add). Draw rectangle to box-select.',
+            () => this.exitSelectionMode()
+        );
+        this._selectionBanner = banner;
+
+        // Allow rectangle-select: Shift+drag
+        this._rectSelectHandler = this._setupRectangleSelect();
+
+        bus.emit('selection:modeChanged', true);
+        logger.info('Map', 'Selection mode enabled');
+    }
+
+    /** Exit selection mode (keeps current selection) */
+    exitSelectionMode() {
+        this._selectionMode = false;
+        this.map.getContainer().style.cursor = '';
+        if (this._selectionBanner) {
+            this._selectionBanner.remove();
+            this._selectionBanner = null;
+        }
+        if (this._rectSelectCleanup) {
+            this._rectSelectCleanup();
+            this._rectSelectCleanup = null;
+        }
+        bus.emit('selection:modeChanged', false);
+        logger.info('Map', 'Selection mode disabled');
+    }
+
+    /** Is selection mode currently active? */
+    isSelectionMode() { return this._selectionMode; }
+
+    /**
+     * Handle a feature click during selection mode.
+     * Without shift: replace selection with this feature.
+     * With shift: toggle this feature in/out of selection.
+     */
+    _handleSelectionClick(layerId, featureIndex, shiftKey, layerColor) {
+        if (!this._selections.has(layerId)) {
+            this._selections.set(layerId, new Set());
+        }
+        const sel = this._selections.get(layerId);
+
+        if (shiftKey) {
+            // Toggle individual feature
+            if (sel.has(featureIndex)) {
+                sel.delete(featureIndex);
+            } else {
+                sel.add(featureIndex);
+            }
+        } else {
+            // Replace entire selection with just this feature
+            // Clear selections on ALL layers first
+            for (const lid of this._selections.keys()) {
+                this._selections.set(lid, new Set());
+                this._renderSelectionHighlights(lid);
+            }
+            this._selections.set(layerId, new Set([featureIndex]));
+        }
+
+        this._renderSelectionHighlights(layerId);
+        bus.emit('selection:changed', {
+            layerId,
+            count: this.getSelectionCount(layerId),
+            totalCount: this.getTotalSelectionCount()
+        });
+    }
+
+    /**
+     * Select features by rectangle (box select).
+     * All features whose bounds intersect the rectangle are selected.
+     */
+    _setupRectangleSelect() {
+        let startLatLng = null;
+        let rect = null;
+        let dragging = false;
+
+        const onMouseDown = (e) => {
+            if (!e.originalEvent.shiftKey && !e.originalEvent.ctrlKey) return; // Only shift/ctrl+drag
+            startLatLng = e.latlng;
+            dragging = true;
+            this.map.dragging.disable();
+        };
+
+        const onMouseMove = (e) => {
+            if (!dragging || !startLatLng) return;
+            const bounds = L.latLngBounds(startLatLng, e.latlng);
+            if (rect) {
+                rect.setBounds(bounds);
+            } else {
+                rect = L.rectangle(bounds, {
+                    color: '#00e5ff', weight: 2, fillOpacity: 0.1,
+                    dashArray: '6,4'
+                }).addTo(this.map);
+            }
+        };
+
+        const onMouseUp = (e) => {
+            if (!dragging || !startLatLng) return;
+            this.map.dragging.enable();
+            dragging = false;
+            const bounds = L.latLngBounds(startLatLng, e.latlng);
+            startLatLng = null;
+
+            // Only act on meaningful rectangles (not accidental clicks)
+            const size = this.map.latLngToContainerPoint(bounds.getNorthEast())
+                .distanceTo(this.map.latLngToContainerPoint(bounds.getSouthWest()));
+            if (size < 10) {
+                if (rect) { this.map.removeLayer(rect); rect = null; }
+                return;
+            }
+
+            // Find features within bounds
+            const addToExisting = e.originalEvent?.shiftKey;
+            this._selectFeaturesInBounds(bounds, addToExisting);
+
+            // Remove rectangle after brief flash
+            if (rect) {
+                setTimeout(() => { try { this.map.removeLayer(rect); } catch (_) {} rect = null; }, 400);
+            }
+        };
+
+        this.map.on('mousedown', onMouseDown);
+        this.map.on('mousemove', onMouseMove);
+        this.map.on('mouseup', onMouseUp);
+
+        this._rectSelectCleanup = () => {
+            this.map.off('mousedown', onMouseDown);
+            this.map.off('mousemove', onMouseMove);
+            this.map.off('mouseup', onMouseUp);
+            if (rect) { try { this.map.removeLayer(rect); } catch (_) {} }
+            this.map.dragging.enable();
+        };
+    }
+
+    /**
+     * Select all features from all visible layers that fall within the given bounds.
+     */
+    _selectFeaturesInBounds(bounds, addToExisting) {
+        if (!addToExisting) {
+            // Clear all existing selections
+            for (const lid of this._selections.keys()) {
+                this._selections.set(lid, new Set());
+            }
+        }
+
+        for (const [layerId, leafletLayer] of this.dataLayers) {
+            if (!this.map.hasLayer(leafletLayer)) continue; // skip hidden layers
+
+            if (!this._selections.has(layerId)) {
+                this._selections.set(layerId, new Set());
+            }
+            const sel = this._selections.get(layerId);
+
+            leafletLayer.eachLayer((sub) => {
+                const idx = sub._featureIndex;
+                if (idx === undefined) return;
+                // Check if feature intersects bounds
+                let inside = false;
+                if (sub.getLatLng) {
+                    // Point feature
+                    inside = bounds.contains(sub.getLatLng());
+                } else if (sub.getBounds) {
+                    inside = bounds.intersects(sub.getBounds());
+                }
+                if (inside) sel.add(idx);
+            });
+
+            this._renderSelectionHighlights(layerId);
+        }
+
+        const total = this.getTotalSelectionCount();
+        bus.emit('selection:changed', { totalCount: total });
+        if (total > 0) {
+            logger.info('Map', `Box selected ${total} feature(s)`);
+        }
+    }
+
+    /**
+     * Render cyan highlight overlays for all selected features in a layer.
+     */
+    _renderSelectionHighlights(layerId) {
+        // Remove previous highlight group
+        if (this._selectionLayers.has(layerId)) {
+            try { this.map.removeLayer(this._selectionLayers.get(layerId)); } catch (_) {}
+            this._selectionLayers.delete(layerId);
+        }
+
+        const sel = this._selections.get(layerId);
+        if (!sel || sel.size === 0) return;
+
+        const leafletLayer = this.dataLayers.get(layerId);
+        if (!leafletLayer) return;
+
+        const group = L.layerGroup();
+        leafletLayer.eachLayer((sub) => {
+            if (sel.has(sub._featureIndex)) {
+                // Create a highlight copy
+                const feature = sub.feature;
+                if (!feature?.geometry) return;
+                const highlight = L.geoJSON(feature, {
+                    style: () => MapManager.SELECTION_STYLE,
+                    pointToLayer: (f, latlng) => L.circleMarker(latlng, MapManager.SELECTION_POINT_STYLE),
+                    interactive: false
+                });
+                group.addLayer(highlight);
+            }
+        });
+
+        group.addTo(this.map);
+        this._selectionLayers.set(layerId, group);
+    }
+
+    /**
+     * Get the selected feature indices for a specific layer.
+     * Returns an array of indices (may be empty).
+     */
+    getSelectedIndices(layerId) {
+        const sel = this._selections.get(layerId);
+        return sel ? [...sel] : [];
+    }
+
+    /**
+     * Get selected features as a GeoJSON FeatureCollection for a layer.
+     * If nothing is selected, returns null (tools should use all features).
+     */
+    getSelectedFeatures(layerId, geojson) {
+        const indices = this.getSelectedIndices(layerId);
+        if (indices.length === 0) return null;
+        const features = geojson.features.filter((_, i) => indices.includes(i));
+        return { type: 'FeatureCollection', features };
+    }
+
+    /** Number of selected features in a specific layer */
+    getSelectionCount(layerId) {
+        return this._selections.get(layerId)?.size || 0;
+    }
+
+    /** Total selected features across all layers */
+    getTotalSelectionCount() {
+        let total = 0;
+        for (const sel of this._selections.values()) total += sel.size;
+        return total;
+    }
+
+    /**
+     * Clear selection for a specific layer, or all layers if no id given.
+     */
+    clearSelection(layerId = null) {
+        if (layerId) {
+            this._selections.delete(layerId);
+            if (this._selectionLayers.has(layerId)) {
+                try { this.map.removeLayer(this._selectionLayers.get(layerId)); } catch (_) {}
+                this._selectionLayers.delete(layerId);
+            }
+        } else {
+            for (const [lid, group] of this._selectionLayers) {
+                try { this.map.removeLayer(group); } catch (_) {}
+            }
+            this._selections.clear();
+            this._selectionLayers.clear();
+        }
+        bus.emit('selection:changed', { layerId, totalCount: this.getTotalSelectionCount() });
+    }
+
+    /**
+     * Select specific feature indices programmatically.
+     */
+    selectFeatures(layerId, indices) {
+        this._selections.set(layerId, new Set(indices));
+        this._renderSelectionHighlights(layerId);
+        bus.emit('selection:changed', {
+            layerId,
+            count: indices.length,
+            totalCount: this.getTotalSelectionCount()
+        });
+    }
+
+    /**
+     * Select all features in a layer.
+     */
+    selectAll(layerId, geojson) {
+        const indices = geojson.features.map((_, i) => i);
+        this.selectFeatures(layerId, indices);
+    }
+
+    /**
+     * Invert selection for a layer.
+     */
+    invertSelection(layerId, geojson) {
+        const current = this._selections.get(layerId) || new Set();
+        const inverted = geojson.features.map((_, i) => i).filter(i => !current.has(i));
+        this.selectFeatures(layerId, inverted);
+    }
+
     destroy() {
         this._cancelInteraction();
+        this.clearSelection();
+        if (this._selectionMode) this.exitSelectionMode();
         if (this.map) {
             this.map.remove();
             this.map = null;

@@ -89,6 +89,17 @@ export function toggleLayerVisibility(id) {
     }
 }
 
+export function reorderLayer(id, direction) {
+    const idx = state.layers.findIndex(l => l.id === id);
+    if (idx === -1) return;
+    const newIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (newIdx < 0 || newIdx >= state.layers.length) return;
+    const [item] = state.layers.splice(idx, 1);
+    state.layers.splice(newIdx, 0, item);
+    bus.emit('layers:changed', state.layers);
+    bus.emit('layers:reordered', state.layers);
+}
+
 // Transform history
 export function pushTransform(layerId, name, snapshotGeojson) {
     // Truncate any redo history
@@ -161,7 +172,7 @@ window.addEventListener('resize', checkMobile);
 
 export default {
     getState, getLayers, getActiveLayer, addLayer, removeLayer, setActiveLayer,
-    updateLayer, updateLayerData, toggleLayerVisibility,
+    updateLayer, updateLayerData, toggleLayerVisibility, reorderLayer,
     pushTransform, undo, redo,
     setUIState, toggleAGOLCompat
 };

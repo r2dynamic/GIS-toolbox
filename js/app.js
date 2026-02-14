@@ -7,7 +7,7 @@ import bus from './core/event-bus.js';
 import { handleError } from './core/error-handler.js';
 import {
     getState, getLayers, getActiveLayer, addLayer, removeLayer,
-    setActiveLayer, toggleLayerVisibility, setUIState, toggleAGOLCompat
+    setActiveLayer, toggleLayerVisibility, reorderLayer, setUIState, toggleAGOLCompat
 } from './core/state.js';
 import { mergeDatasets, getSelectedFields, tableToSpatial, createSpatialDataset } from './core/data-model.js';
 import { importFile, importFiles } from './import/importer.js';
@@ -36,6 +36,15 @@ function boot() {
     window.addEventListener('resize', checkMobile);
     // Ensure Leaflet recalculates size after layout settles
     setTimeout(() => { mapManager.map?.invalidateSize(); }, 100);
+
+    // Popup navigation for multi-feature cycling
+    window._mapPopupNav = (dir) => {
+        if (!mapManager._popupHits) return;
+        const len = mapManager._popupHits.length;
+        mapManager._popupIndex = (mapManager._popupIndex + dir + len) % len;
+        mapManager._renderCyclePopup();
+    };
+
     logger.info('App', 'App ready');
 
     // Show tool guide splash on every app open
@@ -265,9 +274,21 @@ function setupEventListeners() {
 
     // Listen for layer changes to update UI
     bus.on('layers:changed', refreshUI);
-    bus.on('layer:active', refreshUI);
+    bus.on('layer:active', () => { refreshUI(); updateSelectionUI(); });
     bus.on('task:error', (data) => {
         showErrorToast(data.error);
+    });
+
+    // Listen for selection changes
+    bus.on('selection:changed', () => updateSelectionUI());
+    bus.on('selection:modeChanged', () => updateSelectionUI());
+
+    // Right-click context menu
+    bus.on('map:contextmenu', showMapContextMenu);
+    document.addEventListener('click', dismissContextMenu);
+    document.addEventListener('contextmenu', (e) => {
+        // Only dismiss if clicking outside map
+        if (!e.target.closest('.map-context-menu')) dismissContextMenu();
     });
 
     // Basemap selector
@@ -325,7 +346,7 @@ function renderLayerList() {
         return;
     }
 
-    container.innerHTML = layers.map(layer => {
+    container.innerHTML = layers.map((layer, idx) => {
         const isActive = layer.id === active?.id;
         const icon = layer.type === 'spatial' ? '🗺️' : '📊';
         const count = layer.type === 'spatial'
@@ -333,24 +354,46 @@ function renderLayerList() {
             : `${layer.rows?.length || 0} rows`;
         const geomBadge = layer.schema?.geometryType
             ? `<span class="badge badge-info">${layer.schema.geometryType}</span>` : '';
+        const filterBadge = layer._activeFilter
+            ? `<span class="layer-filter-badge" title="Filter active – click to edit" onclick="event.stopPropagation(); window.app.openFilterBuilder('${layer.id}')">FILTERED</span>`
+            : '';
 
         return `
-            <div class="layer-item ${isActive ? 'active' : ''}" data-id="${layer.id}">
+            <div class="layer-item ${isActive ? 'active' : ''}" data-id="${layer.id}" onclick="window.app.setActiveLayer('${layer.id}')">
                 <span class="layer-icon">${icon}</span>
-                <div class="layer-info" onclick="window.app.setActiveLayer('${layer.id}')">
+                <div class="layer-name-row">
                     <div class="layer-name" ondblclick="event.stopPropagation(); window.app.renameLayer('${layer.id}', this)">${layer.name}</div>
-                    <div class="layer-meta">${count} · ${layer.schema?.fields?.length || 0} fields ${geomBadge}</div>
+                    ${filterBadge}
+                    <div class="layer-order-btns">
+                        <button title="Move up" ${idx === 0 ? 'disabled' : ''} onclick="event.stopPropagation(); window.app.moveLayerUp('${layer.id}')">▲</button>
+                        <button title="Move down" ${idx === layers.length - 1 ? 'disabled' : ''} onclick="event.stopPropagation(); window.app.moveLayerDown('${layer.id}')">▼</button>
+                    </div>
                 </div>
-                <div class="layer-actions">
-                    <button class="btn-icon" title="Rename" onclick="window.app.renameLayer('${layer.id}')">✏️</button>
-                    <button class="btn-icon" title="Toggle visibility" onclick="window.app.toggleVisibility('${layer.id}')">
-                        ${layer.visible ? '👁️' : '👁️‍🗨️'}
-                    </button>
-                    <button class="btn-icon" title="Zoom to layer" onclick="window.app.zoomToLayer('${layer.id}')">🔍</button>
-                    <button class="btn-icon" title="Remove" onclick="window.app.removeLayer('${layer.id}')">🗑️</button>
+                <div class="layer-bottom-row">
+                    <div class="layer-meta">${count} · ${layer.schema?.fields?.length || 0} fields ${geomBadge}</div>
+                    <div class="layer-actions">
+                        <button class="btn-icon" title="Rename" onclick="event.stopPropagation(); window.app.renameLayer('${layer.id}')">✏️</button>
+                        <button class="btn-icon" title="Toggle visibility" onclick="event.stopPropagation(); window.app.toggleVisibility('${layer.id}')">
+                            ${layer.visible ? '👁️' : '👁️‍🗨️'}
+                        </button>
+                        <button class="btn-icon" title="Zoom to layer" onclick="event.stopPropagation(); window.app.zoomToLayer('${layer.id}')">🔍</button>
+                        <button class="btn-icon" title="Remove" onclick="event.stopPropagation(); window.app.removeLayer('${layer.id}')">🗑️</button>
+                    </div>
                 </div>
             </div>`;
     }).join('');
+}
+
+function moveLayerUp(id) {
+    reorderLayer(id, 'up');
+    mapManager.syncLayerOrder(getLayers().map(l => l.id));
+    renderLayerList();
+}
+
+function moveLayerDown(id) {
+    reorderLayer(id, 'down');
+    mapManager.syncLayerOrder(getLayers().map(l => l.id));
+    renderLayerList();
 }
 
 // ============================
@@ -464,13 +507,15 @@ function renderOutputPanel() {
 }
 
 // ============================
-// Data Prep Panel (left panel section)
+// Layer Data Tools Panel (left panel section)
 // ============================
 function renderDataPrepTools() {
+    const layer = getActiveLayer();
+    const hasFilter = !!layer?._activeFilter;
     return `
         <div class="panel-section">
             <div class="panel-section-header" onclick="toggleSection(this)">
-                Data Prep <span class="arrow">▼</span>
+                Layer Data Tools <span class="arrow">▼</span>
             </div>
             <div class="panel-section-body">
                 <div style="display:flex; flex-wrap:wrap; gap:4px;">
@@ -479,7 +524,7 @@ function renderDataPrepTools() {
                     <button class="btn btn-sm btn-secondary" onclick="window.app.openTemplateBuilder()">Template</button>
                     <button class="btn btn-sm btn-secondary" onclick="window.app.openReplaceClean()">Replace/Clean</button>
                     <button class="btn btn-sm btn-secondary" onclick="window.app.openTypeConvert()">Type Convert</button>
-                    <button class="btn btn-sm btn-secondary" onclick="window.app.openFilterBuilder()">Filter</button>
+                    <button class="btn btn-sm ${hasFilter ? 'btn-primary' : 'btn-secondary'}" onclick="window.app.openFilterBuilder()">${hasFilter ? '⚙ Filter ✓' : 'Filter'}</button>
                     <button class="btn btn-sm btn-secondary" onclick="window.app.openDeduplicate()">Dedup</button>
                     <button class="btn btn-sm btn-secondary" onclick="window.app.openJoinTool()">Join</button>
                     <button class="btn btn-sm btn-secondary" onclick="window.app.openValidation()">Validate</button>
@@ -493,6 +538,12 @@ function renderDataPrepTools() {
                 GIS Tools <span class="arrow">▼</span>
             </div>
             <div class="panel-section-body">
+
+                <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
+                    <button id="btn-selection-toggle" class="btn-selection-toggle" onclick="window.app.toggleSelectionMode()" title="Toggle feature selection mode — click features to select them">✦ Select</button>
+                    <span style="font-size:10px;color:var(--text-muted);">Click features to select, Shift+click to multi-select</span>
+                </div>
+                <div id="selection-bar" class="selection-bar hidden"></div>
 
                 <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px;">Measurement</div>
                 <div style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px;">
@@ -616,7 +667,7 @@ function renderMobilePrepPanel() {
         return;
     }
     el.innerHTML = `
-        <h3>Data Prep</h3>
+        <h3>Layer Data Tools</h3>
         <div style="display:flex;flex-wrap:wrap;gap:4px;">
             <button class="btn btn-secondary btn-sm" onclick="window.app.openSplitColumn()">Split Column</button>
             <button class="btn btn-secondary btn-sm" onclick="window.app.openCombineColumns()">Combine</button>
@@ -648,6 +699,10 @@ function renderMobileToolsPanel() {
     const layers = getLayers();
     el.innerHTML = `
         <h3>GIS Tools</h3>
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+            <button class="btn-selection-toggle" onclick="window.app.toggleSelectionMode()">✦ Select</button>
+            <button class="btn btn-sm btn-secondary" onclick="window.app.clearSelection()">Clear</button>
+        </div>
         <div style="display:flex;flex-wrap:wrap;gap:4px;">
             ${layers.length >= 2 ? '<button class="btn btn-primary btn-sm" onclick="window.app.mergeLayers()">🔗 Merge Layers</button>' : ''}
             <button class="btn btn-secondary btn-sm" onclick="window.app.openDistanceTool()">📏 Distance</button>
@@ -983,37 +1038,80 @@ async function openTypeConvert() {
 }
 
 // Filter Builder
-async function openFilterBuilder() {
+async function openFilterBuilder(targetLayerId) {
+    // If called with a specific layer, switch to it first
+    if (targetLayerId) {
+        setActiveLayer(targetLayerId);
+        refreshUI();
+    }
+    const layer = getActiveLayer();
+    if (!layer) return showToast('No active layer', 'warning');
     const fields = getFieldNames();
     const operators = transforms.FILTER_OPERATORS;
+    const existing = layer._activeFilter || null;
+
+    const removeBtn = existing
+        ? '<button class="btn btn-danger" id="fb-remove-filter" style="margin-right:auto;">Remove Filter</button>'
+        : '';
 
     const html = `
         <div id="filter-rules"></div>
         <button class="btn btn-sm btn-secondary mt-8" id="fb-add-rule">+ Add Rule</button>
         <div class="form-group mt-8"><label>Logic</label>
-            <select id="fb-logic"><option value="AND">AND (all match)</option><option value="OR">OR (any match)</option></select></div>`;
+            <select id="fb-logic"><option value="AND" ${existing?.logic === 'AND' ? 'selected' : ''}>AND (all match)</option><option value="OR" ${existing?.logic === 'OR' ? 'selected' : ''}>OR (any match)</option></select></div>`;
 
-    showModal('Filter Builder', html, {
+    showModal(existing ? 'Edit Filter' : 'Filter Builder', html, {
         width: '650px',
-        footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Apply Filter</button>',
+        footer: `${removeBtn}<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Apply Filter</button>`,
         onMount: (overlay, close) => {
             const rulesContainer = overlay.querySelector('#filter-rules');
             let ruleCount = 0;
 
-            const addRule = () => {
+            const addRule = (preset) => {
                 ruleCount++;
                 const ruleHtml = `<div class="flex gap-4 items-center mb-8" data-rule="${ruleCount}">
-                    <select class="rule-field" style="flex:1">${fields.map(f => `<option>${f}</option>`).join('')}</select>
-                    <select class="rule-op" style="flex:1">${operators.map(o => `<option value="${o.value}">${o.label}</option>`).join('')}</select>
-                    <input type="text" class="rule-val" placeholder="value" style="flex:1">
+                    <select class="rule-field" style="flex:1">${fields.map(f => `<option ${preset?.field === f ? 'selected' : ''}>${f}</option>`).join('')}</select>
+                    <select class="rule-op" style="flex:1">${operators.map(o => `<option value="${o.value}" ${preset?.operator === o.value ? 'selected' : ''}>${o.label}</option>`).join('')}</select>
+                    <input type="text" class="rule-val" placeholder="value" style="flex:1" value="${preset?.value ?? ''}">
                     <button class="btn-icon" onclick="this.parentElement.remove()">✕</button>
                 </div>`;
                 rulesContainer.insertAdjacentHTML('beforeend', ruleHtml);
             };
 
-            addRule();
-            overlay.querySelector('#fb-add-rule').onclick = addRule;
+            // Pre-populate existing rules or add one blank rule
+            if (existing && existing.rules.length > 0) {
+                existing.rules.forEach(r => addRule(r));
+            } else {
+                addRule();
+            }
+
+            overlay.querySelector('#fb-add-rule').onclick = () => addRule();
             overlay.querySelector('.cancel-btn').onclick = () => close();
+
+            // Remove filter button
+            const removeFilterBtn = overlay.querySelector('#fb-remove-filter');
+            if (removeFilterBtn) {
+                removeFilterBtn.onclick = () => {
+                    if (layer._preFilterSnapshot) {
+                        saveSnapshot(layer.id, 'Remove Filter', layer.geojson);
+                        layer.geojson = JSON.parse(JSON.stringify(layer._preFilterSnapshot));
+                        delete layer._activeFilter;
+                        delete layer._preFilterSnapshot;
+                        import('./core/data-model.js').then(dm => {
+                            layer.schema = dm.analyzeSchema(layer.geojson);
+                            bus.emit('layer:updated', layer);
+                            bus.emit('layers:changed', getLayers());
+                            mapManager.addLayer(layer, getLayers().indexOf(layer));
+                            refreshUI();
+                        });
+                        showToast('Filter removed', 'success');
+                    } else {
+                        showToast('No snapshot — use Undo to revert', 'info');
+                    }
+                    close();
+                };
+            }
+
             overlay.querySelector('.apply-btn').onclick = () => {
                 const rules = Array.from(rulesContainer.querySelectorAll('[data-rule]')).map(el => ({
                     field: el.querySelector('.rule-field').value,
@@ -1021,7 +1119,19 @@ async function openFilterBuilder() {
                     value: el.querySelector('.rule-val').value
                 }));
                 const logic = overlay.querySelector('#fb-logic').value;
-                const result = transforms.applyFilters(getFeatures(), rules, logic);
+
+                // If re-filtering, restore pre-filter data first so filter stacks don't compound
+                const sourceFeatures = layer._preFilterSnapshot
+                    ? JSON.parse(JSON.stringify(layer._preFilterSnapshot)).features
+                    : getFeatures();
+
+                // Store pre-filter snapshot only on first filter
+                if (!layer._preFilterSnapshot) {
+                    layer._preFilterSnapshot = JSON.parse(JSON.stringify(layer.geojson));
+                }
+
+                const result = transforms.applyFilters(sourceFeatures, rules, logic);
+                layer._activeFilter = { rules, logic };
                 applyTransform(`Filter (${result.length} results)`, result);
                 close();
             };
@@ -1190,12 +1300,15 @@ async function openBuffer() {
     if (!layer || layer.type !== 'spatial') return showToast('Need a spatial layer', 'warning');
     if (typeof turf === 'undefined') return showToast('Turf.js not loaded yet', 'warning');
 
+    const work = getWorkingFeatures(layer);
+    const selNote = work.isSelection ? `<div class="info-box text-xs">Operating on <strong>${work.count}</strong> selected features (of ${work.totalCount}).</div>` : '';
     const html = `
         <div class="form-group"><label>Buffer distance</label>
             <input type="number" id="buf-dist" value="1" min="0.001" step="0.1"></div>
         <div class="form-group"><label>Units</label>
             <select id="buf-units"><option value="kilometers">Kilometers</option><option value="miles">Miles</option><option value="meters">Meters</option></select></div>
-        ${layer.geojson.features.length > 5000 ? '<div class="warning-box">Large dataset — this may be slow.</div>' : ''}`;
+        ${work.count > 5000 ? '<div class="warning-box">Large dataset — this may be slow.</div>' : ''}
+        ${selNote}`;
 
     showModal('Buffer', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Buffer</button>',
@@ -1206,7 +1319,7 @@ async function openBuffer() {
                 const units = overlay.querySelector('#buf-units').value;
                 close();
                 try {
-                    const result = await gisTools.bufferFeatures(layer, dist, units);
+                    const result = await gisTools.bufferFeatures(getWorkingDataset(layer), dist, units);
                     addLayer(result);
                     mapManager.addLayer(result, getLayers().indexOf(result));
                     showToast('Buffer complete', 'success');
@@ -1223,9 +1336,12 @@ async function openSimplify() {
     const layer = getActiveLayer();
     if (!layer || layer.type !== 'spatial') return showToast('Need a spatial layer', 'warning');
 
+    const work = getWorkingFeatures(layer);
+    const selNote = work.isSelection ? `<div class="info-box text-xs">Operating on <strong>${work.count}</strong> selected features.</div>` : '';
     const html = `
         <div class="form-group"><label>Tolerance (degrees, e.g., 0.001)</label>
-            <input type="number" id="simp-tol" value="0.001" min="0.00001" step="0.0001"></div>`;
+            <input type="number" id="simp-tol" value="0.001" min="0.00001" step="0.0001"></div>
+        ${selNote}`;
 
     showModal('Simplify Geometries', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Simplify</button>',
@@ -1235,7 +1351,7 @@ async function openSimplify() {
                 const tol = parseFloat(overlay.querySelector('#simp-tol').value);
                 close();
                 try {
-                    const { dataset, stats } = await gisTools.simplifyFeatures(layer, tol);
+                    const { dataset, stats } = await gisTools.simplifyFeatures(getWorkingDataset(layer), tol);
                     addLayer(dataset);
                     mapManager.addLayer(dataset, getLayers().indexOf(dataset));
                     showToast(`Simplified: ${stats.verticesBefore} → ${stats.verticesAfter} vertices`, 'success');
@@ -1252,7 +1368,9 @@ async function openClip() {
     const layer = getActiveLayer();
     if (!layer || layer.type !== 'spatial') return showToast('Need a spatial layer', 'warning');
 
-    showModal('Clip to Current Map Extent', '<p>This will clip features to the current visible map area.</p>', {
+    const work = getWorkingFeatures(layer);
+    const selNote = work.isSelection ? `<p class="info-box text-xs">Operating on <strong>${work.count}</strong> selected features.</p>` : '';
+    showModal('Clip to Current Map Extent', `<p>This will clip features to the current visible map area.</p>${selNote}`, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Clip</button>',
         onMount: (overlay, close) => {
             overlay.querySelector('.cancel-btn').onclick = () => close();
@@ -1265,7 +1383,7 @@ async function openClip() {
                     bounds.getEast(), bounds.getNorth()
                 ]);
                 try {
-                    const result = await gisTools.clipFeatures(layer, bbox.geometry);
+                    const result = await gisTools.clipFeatures(getWorkingDataset(layer), bbox.geometry);
                     addLayer(result);
                     mapManager.addLayer(result, getLayers().indexOf(result));
                     showToast(`Clipped: ${result.geojson.features.length} features`, 'success');
@@ -1293,6 +1411,131 @@ function requireSpatialLayer(geomTypes = null) {
         if (!has) { showToast(`Need ${types.join(' or ')} features`, 'warning'); return null; }
     }
     return layer;
+}
+
+/**
+ * Get the features to operate on for the active layer.
+ * If features are selected → returns only selected features as a FeatureCollection.
+ * If nothing selected → returns all features (the full geojson).
+ * Also returns metadata about whether this is a selection or full dataset.
+ */
+function getWorkingFeatures(layer) {
+    if (!layer || layer.type !== 'spatial') return null;
+    const selected = mapManager.getSelectedFeatures(layer.id, layer.geojson);
+    if (selected && selected.features.length > 0) {
+        return {
+            geojson: selected,
+            isSelection: true,
+            count: selected.features.length,
+            totalCount: layer.geojson.features.length
+        };
+    }
+    return {
+        geojson: layer.geojson,
+        isSelection: false,
+        count: layer.geojson.features.length,
+        totalCount: layer.geojson.features.length
+    };
+}
+
+/**
+ * Build a temporary dataset-like object from the working features for tools.
+ * Tools that take a `dataset` (with .geojson, .name, etc.) can use this.
+ */
+function getWorkingDataset(layer) {
+    const work = getWorkingFeatures(layer);
+    if (!work) return null;
+    return {
+        ...layer,
+        geojson: work.geojson,
+        _isSelection: work.isSelection,
+        _selectionCount: work.count
+    };
+}
+
+// Selection mode toggle
+function toggleSelectionMode() {
+    if (mapManager.isSelectionMode()) {
+        mapManager.exitSelectionMode();
+    } else {
+        mapManager.enterSelectionMode();
+    }
+    updateSelectionUI();
+}
+
+function clearSelection() {
+    mapManager.clearSelection();
+    updateSelectionUI();
+}
+
+function selectAllFeatures() {
+    const layer = getActiveLayer();
+    if (!layer || layer.type !== 'spatial') return;
+    mapManager.selectAll(layer.id, layer.geojson);
+    updateSelectionUI();
+}
+
+function invertSelection() {
+    const layer = getActiveLayer();
+    if (!layer || layer.type !== 'spatial') return;
+    mapManager.invertSelection(layer.id, layer.geojson);
+    updateSelectionUI();
+}
+
+async function deleteSelectedFeatures() {
+    const layer = getActiveLayer();
+    if (!layer || layer.type !== 'spatial') return;
+    const indices = mapManager.getSelectedIndices(layer.id);
+    if (indices.length === 0) return showToast('No features selected', 'warning');
+    const ok = await confirm('Delete Features', `Delete ${indices.length} selected feature(s)? This can be undone.`);
+    if (!ok) return;
+
+    const selectedSet = new Set(indices);
+    const remaining = layer.geojson.features.filter((_, i) => !selectedSet.has(i));
+    saveSnapshot(layer.id, `Delete ${indices.length} feature(s)`, layer.geojson);
+    layer.geojson = { type: 'FeatureCollection', features: remaining };
+
+    import('./core/data-model.js').then(dm => {
+        layer.schema = dm.analyzeSchema(layer.geojson);
+        bus.emit('layer:updated', layer);
+        bus.emit('layers:changed', getLayers());
+        mapManager.clearSelection(layer.id);
+        mapManager.addLayer(layer, getLayers().indexOf(layer));
+        refreshUI();
+    });
+    showToast(`Deleted ${indices.length} feature(s)`, 'success');
+}
+
+/** Update the selection bar UI */
+function updateSelectionUI() {
+    const bar = document.getElementById('selection-bar');
+    const toggleBtn = document.getElementById('btn-selection-toggle');
+    if (!bar) return;
+
+    const layer = getActiveLayer();
+    const count = layer ? mapManager.getSelectionCount(layer.id) : 0;
+    const total = layer?.geojson?.features?.length || 0;
+    const isMode = mapManager.isSelectionMode();
+
+    // Update toggle button state
+    if (toggleBtn) {
+        toggleBtn.classList.toggle('active', isMode);
+        toggleBtn.textContent = isMode ? '✦ Select ON' : '✦ Select';
+    }
+
+    if (count > 0) {
+        bar.classList.remove('hidden');
+        bar.innerHTML = `
+            <span class="sel-count">${count}</span> of ${total} features selected
+            <button class="sel-btn" onclick="window.app.selectAllFeatures()">All</button>
+            <button class="sel-btn" onclick="window.app.invertSelection()">Invert</button>
+            <button class="sel-btn" onclick="window.app.deleteSelectedFeatures()" title="Delete selected features" style="color:var(--error);">🗑 Delete</button>
+            <button class="sel-btn sel-clear" onclick="window.app.clearSelection()">✕ Clear</button>
+        `;
+    } else {
+        bar.classList.add('hidden');
+        bar.innerHTML = '';
+    }
 }
 
 // Helper: layer dropdown options
@@ -1399,13 +1642,16 @@ async function openAlongTool() {
     const layer = requireSpatialLayer(['LineString', 'MultiLineString']);
     if (!layer) return;
 
+    const work = getWorkingFeatures(layer);
+    const selNote = work.isSelection ? `<div class="info-box text-xs">Using first line from <strong>${work.count}</strong> selected features.</div>` : '';
     const html = `
         <p>Get a point at a specified distance along a line feature.</p>
         <div class="form-group"><label>Distance along line</label>
             <input type="number" id="along-dist" value="1" min="0" step="0.1"></div>
         <div class="form-group"><label>Units</label>
             <select id="along-units"><option value="kilometers">Kilometers</option><option value="miles">Miles</option><option value="meters">Meters</option></select></div>
-        <div class="info-box text-xs">Uses the first LineString feature in the active layer.</div>`;
+        ${selNote}
+        <div class="info-box text-xs">Uses the first LineString feature${work.isSelection ? ' in the selection' : ' in the active layer'}.</div>`;
     showModal('Point Along Line', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Find Point</button>',
         onMount: (overlay, close) => {
@@ -1414,7 +1660,7 @@ async function openAlongTool() {
                 const dist = parseFloat(overlay.querySelector('#along-dist').value);
                 const units = overlay.querySelector('#along-units').value;
                 close();
-                const line = layer.geojson.features.find(f => f.geometry?.type === 'LineString');
+                const line = work.geojson.features.find(f => f.geometry?.type === 'LineString');
                 if (!line) return showToast('No LineString found in layer', 'warning');
                 try {
                     const pt = gisTools.pointAlong(line, dist, units);
@@ -1473,7 +1719,9 @@ async function openBboxClip() {
     const layer = requireSpatialLayer();
     if (!layer) return;
 
-    showModal('BBox Clip', '<p>Draw a rectangle on the map to clip features to that area.</p>', {
+    const work = getWorkingFeatures(layer);
+    const selNote = work.isSelection ? `<p class="info-box text-xs">Operating on <strong>${work.count}</strong> selected features.</p>` : '';
+    showModal('BBox Clip', `<p>Draw a rectangle on the map to clip features to that area.</p>${selNote}`, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Draw Rectangle on Map</button>',
         onMount: (overlay, close) => {
             overlay.querySelector('.cancel-btn').onclick = () => close();
@@ -1482,7 +1730,7 @@ async function openBboxClip() {
                 const bbox = await mapManager.startRectangleDraw('Click and drag to draw a clip rectangle');
                 if (!bbox) return;
                 try {
-                    const result = await gisTools.bboxClipFeatures(layer, bbox);
+                    const result = await gisTools.bboxClipFeatures(getWorkingDataset(layer), bbox);
                     addResultLayer(result);
                     showToast(`Clipped: ${result.geojson.features.length} features`, 'success');
                 } catch (e) {
@@ -1498,12 +1746,15 @@ async function openBezierSpline() {
     const layer = requireSpatialLayer(['LineString', 'MultiLineString']);
     if (!layer) return;
 
+    const work = getWorkingFeatures(layer);
+    const selNote = work.isSelection ? `<div class="info-box text-xs">Operating on <strong>${work.count}</strong> selected features.</div>` : '';
     const html = `
         <p>Smooth line features into curved bezier splines.</p>
         <div class="form-group"><label>Resolution (higher = smoother, default 10000)</label>
             <input type="number" id="spline-res" value="10000" min="100" step="500"></div>
         <div class="form-group"><label>Sharpness (0-1, higher = sharper curves)</label>
-            <input type="number" id="spline-sharp" value="0.85" min="0" max="1" step="0.05"></div>`;
+            <input type="number" id="spline-sharp" value="0.85" min="0" max="1" step="0.05"></div>
+        ${selNote}`;
     showModal('Bezier Spline', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Apply</button>',
         onMount: (overlay, close) => {
@@ -1513,7 +1764,7 @@ async function openBezierSpline() {
                 const sharp = parseFloat(overlay.querySelector('#spline-sharp').value);
                 close();
                 try {
-                    const result = await gisTools.bezierSplineFeatures(layer, res, sharp);
+                    const result = await gisTools.bezierSplineFeatures(getWorkingDataset(layer), res, sharp);
                     addResultLayer(result);
                     showToast('Bezier spline applied', 'success');
                 } catch (e) {
@@ -1529,10 +1780,13 @@ async function openPolygonSmooth() {
     const layer = requireSpatialLayer(['Polygon', 'MultiPolygon']);
     if (!layer) return;
 
+    const work = getWorkingFeatures(layer);
+    const selNote = work.isSelection ? `<div class="info-box text-xs">Operating on <strong>${work.count}</strong> selected features.</div>` : '';
     const html = `
         <p>Smooth jagged polygon edges by averaging corner positions.</p>
         <div class="form-group"><label>Iterations (higher = smoother, default 1)</label>
-            <input type="number" id="smooth-iter" value="1" min="1" max="10" step="1"></div>`;
+            <input type="number" id="smooth-iter" value="1" min="1" max="10" step="1"></div>
+        ${selNote}`;
     showModal('Polygon Smooth', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Smooth</button>',
         onMount: (overlay, close) => {
@@ -1541,7 +1795,7 @@ async function openPolygonSmooth() {
                 const iter = parseInt(overlay.querySelector('#smooth-iter').value);
                 close();
                 try {
-                    const result = await gisTools.polygonSmoothFeatures(layer, iter);
+                    const result = await gisTools.polygonSmoothFeatures(getWorkingDataset(layer), iter);
                     addResultLayer(result);
                     showToast('Polygons smoothed', 'success');
                 } catch (e) {
@@ -1557,12 +1811,15 @@ async function openLineOffset() {
     const layer = requireSpatialLayer(['LineString', 'MultiLineString']);
     if (!layer) return;
 
+    const work = getWorkingFeatures(layer);
+    const selNote = work.isSelection ? `<div class="info-box text-xs">Operating on <strong>${work.count}</strong> selected features.</div>` : '';
     const html = `
         <p>Create a parallel copy of line features, offset by the specified distance. Positive = right side, negative = left side.</p>
         <div class="form-group"><label>Offset distance</label>
             <input type="number" id="offset-dist" value="0.5" step="0.1"></div>
         <div class="form-group"><label>Units</label>
-            <select id="offset-units"><option value="kilometers">Kilometers</option><option value="miles">Miles</option><option value="meters">Meters</option></select></div>`;
+            <select id="offset-units"><option value="kilometers">Kilometers</option><option value="miles">Miles</option><option value="meters">Meters</option></select></div>
+        ${selNote}`;
     showModal('Line Offset', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Offset</button>',
         onMount: (overlay, close) => {
@@ -1572,7 +1829,7 @@ async function openLineOffset() {
                 const units = overlay.querySelector('#offset-units').value;
                 close();
                 try {
-                    const result = await gisTools.lineOffsetFeatures(layer, dist, units);
+                    const result = await gisTools.lineOffsetFeatures(getWorkingDataset(layer), dist, units);
                     addResultLayer(result);
                     showToast(`Line offset by ${dist} ${units}`, 'success');
                 } catch (e) {
@@ -1605,7 +1862,8 @@ async function openLineSliceAlong() {
                 const stop = parseFloat(overlay.querySelector('#slice-stop').value);
                 const units = overlay.querySelector('#slice-units').value;
                 close();
-                const line = layer.geojson.features.find(f => f.geometry?.type === 'LineString');
+                const work = getWorkingFeatures(layer);
+                const line = work.geojson.features.find(f => f.geometry?.type === 'LineString');
                 if (!line) return showToast('No LineString found', 'warning');
                 try {
                     const sliced = gisTools.lineSliceAlong(line, start, stop, units);
@@ -1635,7 +1893,8 @@ async function openLineSlice() {
                 close();
                 const pts = await mapManager.startTwoPointPick('Click the start point along the line', 'Click the end point along the line');
                 if (!pts) return;
-                const line = layer.geojson.features.find(f => f.geometry?.type === 'LineString');
+                const work = getWorkingFeatures(layer);
+                const line = work.geojson.features.find(f => f.geometry?.type === 'LineString');
                 if (!line) return showToast('No LineString found', 'warning');
                 try {
                     const sliced = gisTools.lineSlice(turf.point(pts[0]), turf.point(pts[1]), line);
@@ -1700,14 +1959,16 @@ async function openKinks() {
     const layer = requireSpatialLayer();
     if (!layer) return;
 
-    showModal('Find Kinks (Self-Intersections)', '<p>Find all points where lines or polygon edges cross over themselves. Useful for detecting geometry errors.</p>', {
+    const work = getWorkingFeatures(layer);
+    const selNote = work.isSelection ? `<p class="info-box text-xs">Checking <strong>${work.count}</strong> selected features.</p>` : '';
+    showModal('Find Kinks (Self-Intersections)', `<p>Find all points where lines or polygon edges cross over themselves. Useful for detecting geometry errors.</p>${selNote}`, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Find Kinks</button>',
         onMount: (overlay, close) => {
             overlay.querySelector('.cancel-btn').onclick = () => close();
             overlay.querySelector('.apply-btn').onclick = async () => {
                 close();
                 try {
-                    const result = await gisTools.findKinks(layer);
+                    const result = await gisTools.findKinks(getWorkingDataset(layer));
                     addResultLayer(result);
                     showToast(`Found ${result.geojson.features.length} kink(s)`, result.geojson.features.length > 0 ? 'warning' : 'success');
                 } catch (e) {
@@ -1723,14 +1984,16 @@ async function openCombine() {
     const layer = requireSpatialLayer();
     if (!layer) return;
 
-    showModal('Combine Features', '<p>Merge all features of the same geometry type into a single Multi-geometry feature (e.g., multiple Points → one MultiPoint).</p>', {
+    const work = getWorkingFeatures(layer);
+    const selNote = work.isSelection ? `<p class="info-box text-xs">Combining <strong>${work.count}</strong> selected features.</p>` : '';
+    showModal('Combine Features', `<p>Merge all features of the same geometry type into a single Multi-geometry feature (e.g., multiple Points → one MultiPoint).</p>${selNote}`, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Combine</button>',
         onMount: (overlay, close) => {
             overlay.querySelector('.cancel-btn').onclick = () => close();
             overlay.querySelector('.apply-btn').onclick = () => {
                 close();
                 try {
-                    const result = gisTools.combineFeatures(layer);
+                    const result = gisTools.combineFeatures(getWorkingDataset(layer));
                     addResultLayer(result);
                     showToast(`Combined into ${result.geojson.features.length} multi-feature(s)`, 'success');
                 } catch (e) {
@@ -1746,16 +2009,19 @@ async function openUnion() {
     const layer = requireSpatialLayer(['Polygon', 'MultiPolygon']);
     if (!layer) return;
 
-    const polyCount = layer.geojson.features.filter(f => f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon')).length;
+    const work = getWorkingFeatures(layer);
+    const polyCount = work.geojson.features.filter(f => f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon')).length;
+    const selNote = work.isSelection ? `<p class="info-box text-xs">Unioning <strong>${polyCount}</strong> selected polygons.</p>` : '';
     showModal('Union Polygons', `<p>Merge all ${polyCount} polygon features into a single unified polygon. Overlapping areas are dissolved.</p>
-        ${polyCount > 500 ? '<div class="warning-box">Large dataset — this may be slow.</div>' : ''}`, {
+        ${polyCount > 500 ? '<div class="warning-box">Large dataset — this may be slow.</div>' : ''}
+        ${selNote}`, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Union</button>',
         onMount: (overlay, close) => {
             overlay.querySelector('.cancel-btn').onclick = () => close();
             overlay.querySelector('.apply-btn').onclick = async () => {
                 close();
                 try {
-                    const result = await gisTools.unionFeatures(layer);
+                    const result = await gisTools.unionFeatures(getWorkingDataset(layer));
                     addResultLayer(result);
                     showToast('Union complete', 'success');
                 } catch (e) {
@@ -1771,11 +2037,14 @@ async function openDissolve() {
     const layer = requireSpatialLayer(['Polygon', 'MultiPolygon']);
     if (!layer) return;
 
+    const work = getWorkingFeatures(layer);
+    const selNote = work.isSelection ? `<div class="info-box text-xs">Dissolving <strong>${work.count}</strong> selected features.</div>` : '';
     const fields = (layer.schema?.fields || []).map(f => `<option value="${f.name}">${f.name}</option>`).join('');
     const html = `
         <p>Merge polygons that share the same value in a selected field into single polygons.</p>
         <div class="form-group"><label>Dissolve field</label>
-            <select id="diss-field">${fields}</select></div>`;
+            <select id="diss-field">${fields}</select></div>
+        ${selNote}`;
     showModal('Dissolve', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Dissolve</button>',
         onMount: (overlay, close) => {
@@ -1784,7 +2053,7 @@ async function openDissolve() {
                 const field = overlay.querySelector('#diss-field').value;
                 close();
                 try {
-                    const result = await gisTools.dissolveFeatures(layer, field);
+                    const result = await gisTools.dissolveFeatures(getWorkingDataset(layer), field);
                     addResultLayer(result);
                     showToast(`Dissolved by ${field}`, 'success');
                 } catch (e) {
@@ -2952,26 +3221,97 @@ function showDataTable() {
     const layer = getActiveLayer();
     if (!layer) return;
 
-    const features = layer.type === 'spatial' ? layer.geojson.features : [];
-    const rows = features.length > 0
-        ? features.slice(0, 200).map(f => f.properties)
-        : (layer.rows || []).slice(0, 200);
+    const isSpatial = layer.type === 'spatial';
+    const features = isSpatial ? layer.geojson.features : [];
+    const totalCount = isSpatial ? features.length : (layer.rows || []).length;
+    const displayRows = isSpatial
+        ? features.slice(0, 500)
+        : (layer.rows || []).slice(0, 500);
 
-    if (rows.length === 0) return showToast('No data to show', 'warning');
+    if (displayRows.length === 0) return showToast('No data to show', 'warning');
 
-    const fields = Object.keys(rows[0] || {});
-    const headerHtml = fields.map(f => `<th>${f}</th>`).join('');
-    const bodyHtml = rows.map(r =>
-        `<tr>${fields.map(f => `<td>${r[f] ?? ''}</td>`).join('')}</tr>`
-    ).join('');
+    const firstProps = isSpatial ? (displayRows[0]?.properties || {}) : (displayRows[0] || {});
+    const fields = Object.keys(firstProps).filter(k => !k.startsWith('_'));
+    const headerHtml = `<th style="width:30px;">#</th>` + fields.map(f => `<th>${f}</th>`).join('');
+    const bodyHtml = displayRows.map((item, i) => {
+        const props = isSpatial ? (item.properties || {}) : item;
+        const cells = fields.map(f => {
+            let val = props[f];
+            if (val != null && typeof val === 'object') val = JSON.stringify(val);
+            return `<td contenteditable="true" data-row="${i}" data-field="${f}">${val ?? ''}</td>`;
+        }).join('');
+        return `<tr><td style="color:var(--text-muted);font-size:10px;text-align:center;">${i + 1}</td>${cells}</tr>`;
+    }).join('');
 
     const html = `
-        <div class="text-xs text-muted mb-8">Showing first ${rows.length} of ${layer.schema?.featureCount || rows.length} rows</div>
-        <div class="data-table-wrap" style="max-height:400px;">
+        <div class="text-xs text-muted mb-8">
+            Showing ${displayRows.length} of ${totalCount} rows · <strong>Click a cell to edit</strong>.
+            Changes are saved when you click away.
+        </div>
+        <div class="data-table-wrap" style="max-height:450px;">
             <table class="data-table"><thead><tr>${headerHtml}</tr></thead><tbody>${bodyHtml}</tbody></table>
         </div>`;
 
-    showModal(`Data: ${layer.name}`, html, { width: '90vw' });
+    showModal(`Data: ${layer.name}`, html, {
+        width: '90vw',
+        onMount: (overlay) => {
+            let dirty = false;
+            overlay.querySelectorAll('td[contenteditable]').forEach(td => {
+                td.addEventListener('focus', () => {
+                    td.style.outline = '2px solid var(--primary)';
+                    td.style.background = 'var(--bg-surface)';
+                });
+                td.addEventListener('blur', () => {
+                    td.style.outline = '';
+                    td.style.background = '';
+                    const row = parseInt(td.dataset.row);
+                    const field = td.dataset.field;
+                    const newVal = td.textContent;
+                    const target = isSpatial ? features[row]?.properties : (layer.rows || [])[row];
+                    if (!target) return;
+                    const oldVal = target[field];
+                    const coerced = (oldVal === null || oldVal === undefined) ? newVal
+                        : typeof oldVal === 'number' ? (isNaN(Number(newVal)) ? newVal : Number(newVal))
+                        : typeof oldVal === 'boolean' ? (newVal === 'true')
+                        : newVal;
+                    if (String(oldVal) !== String(coerced)) {
+                        if (!dirty) {
+                            // Save snapshot on first edit
+                            if (isSpatial) saveSnapshot(layer.id, 'Edit field data', layer.geojson);
+                            dirty = true;
+                        }
+                        target[field] = coerced;
+                    }
+                });
+                td.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); td.blur(); }
+                    if (e.key === 'Escape') { td.blur(); }
+                    if (e.key === 'Tab') {
+                        e.preventDefault();
+                        const next = e.shiftKey ? td.previousElementSibling : td.nextElementSibling;
+                        if (next?.contentEditable === 'true') next.focus();
+                    }
+                });
+            });
+            // When modal closes, refresh if dirty
+            const obs = new MutationObserver(() => {
+                if (!document.body.contains(overlay)) {
+                    obs.disconnect();
+                    if (dirty && isSpatial) {
+                        import('./core/data-model.js').then(dm => {
+                            layer.schema = dm.analyzeSchema(layer.geojson);
+                            bus.emit('layer:updated', layer);
+                            bus.emit('layers:changed', getLayers());
+                            mapManager.addLayer(layer, getLayers().indexOf(layer));
+                            refreshUI();
+                        });
+                        showToast('Data edits saved', 'success');
+                    }
+                }
+            });
+            obs.observe(overlay.parentElement || document.body, { childList: true, subtree: true });
+        }
+    });
 }
 
 // ============================
@@ -3235,12 +3575,13 @@ function showToolInfo() {
             tools: [
                 ['Layers Panel', 'View, select, toggle visibility, zoom to, rename, or remove imported layers.'],
                 ['Fields Panel', 'View, search, select/deselect, rename, or add new fields on the active layer.'],
+                ['Feature Selection', 'Click the ✦ Select button to enter selection mode. Click features to select them (cyan highlight). Shift+click to add/remove. Ctrl+drag to box-select. Tools operate on selected features when a selection exists, or all features when nothing is selected.'],
                 ['Merge Layers', 'Combine all loaded layers into a single layer with a source_file field.'],
                 ['Data Table', 'View the raw attribute table for the active layer.']
             ]
         },
         {
-            title: 'Data Prep',
+            title: 'Layer Data Tools',
             tools: [
                 ['Split Column', 'Split a field into multiple new fields by a delimiter (comma, space, etc.).'],
                 ['Combine', 'Merge two or more fields into a single field with a separator.'],
@@ -3344,6 +3685,121 @@ function showToolInfo() {
 }
 
 // ============================
+// Right-click context menu
+// ============================
+function dismissContextMenu() {
+    document.querySelector('.map-context-menu')?.remove();
+}
+
+function showMapContextMenu({ latlng, originalEvent, layerId, featureIndex, feature }) {
+    dismissContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'map-context-menu';
+
+    const layers = getLayers();
+    const layer = layerId ? layers.find(l => l.id === layerId) : null;
+    const layerIdx = layer ? layers.indexOf(layer) : -1;
+
+    // Header
+    if (layer) {
+        menu.innerHTML += `<div class="ctx-header">Layer: ${layer.name}</div>`;
+    }
+
+    const items = [];
+
+    // Feature-specific items
+    if (feature && layer) {
+        items.push({ icon: '📋', label: 'View attributes', action: () => {
+            const nearby = mapManager._findFeaturesNearClick(latlng);
+            if (nearby.length > 0) mapManager._showMultiPopup(nearby, latlng);
+            else mapManager.showPopup(feature, null, latlng);
+        }});
+    }
+
+    // Coordinates
+    items.push({ icon: '📍', label: `Copy coordinates`, action: () => {
+        const text = `${latlng.lat.toFixed(6)}, ${latlng.lng.toFixed(6)}`;
+        navigator.clipboard.writeText(text).then(() => showToast(`Copied: ${text}`, 'success'))
+            .catch(() => showToast(text, 'info'));
+    }});
+
+    if (layer) {
+        items.push({ sep: true });
+
+        // Layer reordering
+        if (layerIdx > 0) {
+            items.push({ icon: '⬆', label: 'Move layer up', action: () => { moveLayerUp(layerId); }});
+        }
+        if (layerIdx >= 0 && layerIdx < layers.length - 1) {
+            items.push({ icon: '⬇', label: 'Move layer down', action: () => { moveLayerDown(layerId); }});
+        }
+        if (layers.length > 1 && layerIdx !== 0) {
+            items.push({ icon: '⏫', label: 'Bring to front', action: () => {
+                while (layers.indexOf(layers.find(l => l.id === layerId)) > 0) {
+                    reorderLayer(layerId, 'up');
+                }
+                mapManager.syncLayerOrder(getLayers().map(l => l.id));
+                renderLayerList();
+            }});
+        }
+        if (layers.length > 1 && layerIdx !== layers.length - 1) {
+            items.push({ icon: '⏬', label: 'Send to back', action: () => {
+                while (layers.indexOf(layers.find(l => l.id === layerId)) < layers.length - 1) {
+                    reorderLayer(layerId, 'down');
+                }
+                mapManager.syncLayerOrder(getLayers().map(l => l.id));
+                renderLayerList();
+            }});
+        }
+
+        items.push({ sep: true });
+
+        // Hide / show
+        items.push({ icon: layer.visible !== false ? '👁️‍🗨️' : '👁️', label: layer.visible !== false ? 'Hide layer' : 'Show layer', action: () => {
+            toggleLayerVisibility(layerId);
+            mapManager.toggleLayer(layerId, layers.find(l => l.id === layerId)?.visible);
+            renderLayerList();
+        }});
+
+        // Zoom to
+        items.push({ icon: '🔍', label: 'Zoom to layer', action: () => {
+            const ll = mapManager.dataLayers.get(layerId);
+            if (ll) { try { mapManager.getMap().fitBounds(ll.getBounds(), { padding: [30, 30] }); } catch(_) {} }
+        }});
+
+        // Set active
+        items.push({ icon: '✦', label: 'Set as active layer', action: () => { setActiveLayer(layerId); refreshUI(); }});
+    }
+
+    // Build items
+    items.forEach(item => {
+        if (item.sep) {
+            menu.innerHTML += '<div class="ctx-sep"></div>';
+            return;
+        }
+        const el = document.createElement('div');
+        el.className = 'ctx-item';
+        el.innerHTML = `<span class="ctx-icon">${item.icon}</span>${item.label}`;
+        el.addEventListener('click', (e) => {
+            e.stopPropagation();
+            dismissContextMenu();
+            item.action();
+        });
+        menu.appendChild(el);
+    });
+
+    // Position menu at mouse location, clamped to viewport
+    let x = originalEvent.clientX;
+    let y = originalEvent.clientY;
+    document.body.appendChild(menu);
+    const rect = menu.getBoundingClientRect();
+    if (x + rect.width > window.innerWidth) x = window.innerWidth - rect.width - 4;
+    if (y + rect.height > window.innerHeight) y = window.innerHeight - rect.height - 4;
+    menu.style.left = x + 'px';
+    menu.style.top = y + 'px';
+}
+
+// ============================
 // Global app API (for onclick handlers in HTML)
 // ============================
 window.app = {
@@ -3359,6 +3815,8 @@ window.app = {
         const ok = await confirm('Remove Layer', 'Remove this layer?');
         if (ok) { removeLayer(id); mapManager.removeLayer(id); refreshUI(); }
     },
+    moveLayerUp,
+    moveLayerDown,
     toggleField, selectAllFields, filterFields,
     renameLayer, renameField,
     addField,
@@ -3404,7 +3862,13 @@ window.app = {
     openArcGISImporter: openArcGISImporter,
     openCoordinatesModal: openCoordinatesModal,
     mergeLayers: handleMergeLayers,
-    showToolInfo
+    showToolInfo,
+    // Selection
+    toggleSelectionMode,
+    clearSelection,
+    selectAllFeatures,
+    invertSelection,
+    deleteSelectedFeatures
 };
 
 // Subscribe to logs for panel updates
@@ -3447,4 +3911,81 @@ document.addEventListener('DOMContentLoaded', () => {
     if (dataPrepContainer) {
         dataPrepContainer.innerHTML = renderDataPrepTools();
     }
+
+    // ========================
+    // Floating tooltip portal
+    // ========================
+    (function initTooltipPortal() {
+        const portal = document.createElement('div');
+        portal.className = 'geo-tip-portal';
+        const arrow = document.createElement('div');
+        arrow.className = 'tip-arrow';
+        portal.appendChild(arrow);
+        document.body.appendChild(portal);
+        let hideTimeout = null;
+        let activeBtn = null;
+
+        function show(btn) {
+            const tip = btn.querySelector('.geo-tip');
+            if (!tip) return;
+            clearTimeout(hideTimeout);
+            activeBtn = btn;
+
+            // Set text (keep arrow element)
+            // Clear text nodes only, preserve arrow child
+            Array.from(portal.childNodes).forEach(n => {
+                if (n !== arrow) portal.removeChild(n);
+            });
+            portal.insertBefore(document.createTextNode(tip.textContent), arrow);
+
+            // Make visible but off-screen for measurement
+            portal.style.left = '-9999px';
+            portal.style.top = '0px';
+            portal.classList.add('visible');
+
+            const rect = btn.getBoundingClientRect();
+            const pw = 240;
+            const ph = portal.offsetHeight;
+            const btnCenterX = rect.left + rect.width / 2;
+
+            // Horizontal: try to center on button, clamp to viewport
+            let left = btnCenterX - pw / 2;
+            if (left < 8) left = 8;
+            if (left + pw > window.innerWidth - 8) left = window.innerWidth - 8 - pw;
+
+            // Arrow: point at button center relative to tooltip left
+            let arrowLeft = btnCenterX - left;
+            arrowLeft = Math.max(12, Math.min(pw - 12, arrowLeft));
+            arrow.style.left = arrowLeft + 'px';
+
+            portal.style.left = left + 'px';
+            portal.style.width = pw + 'px';
+
+            // Vertical: prefer above, fall back to below
+            let top = rect.top - ph - 10;
+            if (top < 4) {
+                top = rect.bottom + 10;
+                portal.classList.add('below');
+            } else {
+                portal.classList.remove('below');
+            }
+            portal.style.top = top + 'px';
+        }
+
+        function hide() {
+            hideTimeout = setTimeout(() => {
+                portal.classList.remove('visible');
+                activeBtn = null;
+            }, 100);
+        }
+
+        document.addEventListener('pointerenter', (e) => {
+            const btn = e.target.closest('.geo-tool-btn');
+            if (btn) show(btn);
+        }, true);
+        document.addEventListener('pointerleave', (e) => {
+            const btn = e.target.closest('.geo-tool-btn');
+            if (btn && btn === activeBtn) hide();
+        }, true);
+    })();
 });
