@@ -67,6 +67,8 @@ class MapManager {
         this.clusterGroups = new Map();
         this.currentBasemap = 'osm';
         this.drawLayer = null;
+        this.highlightLayer = null; // currently highlighted feature layer
+        this._originalStyles = new Map(); // layer -> original style for unhighlight
     }
 
     init(containerId) {
@@ -88,6 +90,9 @@ class MapManager {
         this.map.on('tileerror', (e) => {
             logger.warn('Map', 'Tile load error', { url: e.tile?.src });
         });
+
+        // Clear highlight when clicking empty map
+        this.map.on('click', () => this.clearHighlight());
 
         logger.info('Map', 'Map initialized');
         bus.emit('map:ready', this.map);
@@ -170,7 +175,11 @@ class MapManager {
                 });
             },
             onEachFeature: (feature, layer) => {
-                layer.on('click', () => this.showPopup(feature, layer));
+                layer.on('click', (e) => {
+                    L.DomEvent.stopPropagation(e);
+                    this.highlightFeature(layer, color);
+                    this.showPopup(feature, layer);
+                });
             }
         });
 
@@ -235,7 +244,76 @@ class MapManager {
             }).join('');
         const tableHtml = rows ? `<table>${rows}</table>` : '<em>No attributes</em>';
         const html = imgHtml + tableHtml;
-        layer.bindPopup(html, { maxWidth: 350, maxHeight: 400 }).openPopup();
+
+        const popup = layer.bindPopup(html, { maxWidth: 350, maxHeight: 400 }).openPopup();
+
+        // Clear highlight when popup is closed
+        layer.on('popupclose', () => this.clearHighlight(), { once: true });
+    }
+
+    /**
+     * Highlight a clicked feature with a bright style
+     */
+    highlightFeature(layer, originalColor) {
+        // Clear previous highlight
+        this.clearHighlight();
+
+        // Store reference
+        this.highlightLayer = layer;
+
+        // Apply highlight style
+        if (layer instanceof L.CircleMarker) {
+            // Point feature
+            this._originalStyles.set(layer, {
+                radius: layer.getRadius(),
+                fillColor: layer.options.fillColor,
+                color: layer.options.color,
+                weight: layer.options.weight,
+                fillOpacity: layer.options.fillOpacity
+            });
+            layer.setStyle({
+                radius: 10,
+                fillColor: '#fbbf24',
+                color: '#ffffff',
+                weight: 3,
+                fillOpacity: 1
+            });
+            layer.bringToFront();
+        } else if (layer.setStyle) {
+            // Line or polygon
+            this._originalStyles.set(layer, {
+                color: layer.options.color,
+                weight: layer.options.weight,
+                opacity: layer.options.opacity,
+                fillColor: layer.options.fillColor,
+                fillOpacity: layer.options.fillOpacity
+            });
+            layer.setStyle({
+                color: '#fbbf24',
+                weight: 4,
+                opacity: 1,
+                fillColor: '#fbbf24',
+                fillOpacity: 0.35
+            });
+            layer.bringToFront();
+        }
+    }
+
+    /**
+     * Clear the current feature highlight, restoring original style
+     */
+    clearHighlight() {
+        if (!this.highlightLayer) return;
+
+        const orig = this._originalStyles.get(this.highlightLayer);
+        if (orig && this.highlightLayer.setStyle) {
+            this.highlightLayer.setStyle(orig);
+            if (orig.radius && this.highlightLayer instanceof L.CircleMarker) {
+                this.highlightLayer.setRadius(orig.radius);
+            }
+        }
+        this._originalStyles.delete(this.highlightLayer);
+        this.highlightLayer = null;
     }
 
     fitToAll() {
