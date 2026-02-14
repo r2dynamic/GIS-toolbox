@@ -2,13 +2,15 @@
 // GIS Toolbox — Service Worker
 // Bump CACHE_VERSION to push updates
 // ============================================
-const CACHE_VERSION = '1.6.4';
+const CACHE_VERSION = '1.6.7';
 const CACHE_NAME = `gis-toolbox-v${CACHE_VERSION}`;
 
 const APP_FILES = [
     './',
     './index.html',
     './manifest.json',
+    './icon.svg',
+    './icon-maskable.svg',
     './css/main.css',
     './css/mobile.css',
     './js/app.js',

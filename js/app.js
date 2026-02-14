@@ -365,6 +365,7 @@ function renderFieldList() {
         <input type="search" id="field-search" placeholder="Search fields..." oninput="window.app.filterFields(this.value)">
         <button class="btn btn-sm btn-secondary" onclick="window.app.selectAllFields(true)">All</button>
         <button class="btn btn-sm btn-secondary" onclick="window.app.selectAllFields(false)">None</button>
+        <button class="btn btn-sm btn-primary" onclick="window.app.addField()" title="Add new field">+ Field</button>
     </div>`;
 
     const fieldRows = fields.map(f => `
@@ -1814,6 +1815,101 @@ function renameField(fieldName, el) {
     }
 }
 
+// ============================
+// Add New Field
+// ============================
+function addField() {
+    const layer = getActiveLayer();
+    if (!layer) return showToast('No layer selected', 'warning');
+
+    const existingNames = new Set((layer.schema?.fields || []).map(f => f.name));
+
+    const html = `
+        <div class="form-group"><label>Field Name</label>
+            <input type="text" id="af-name" placeholder="new_field" autofocus></div>
+        <div class="form-group"><label>Field Type</label>
+            <select id="af-type">
+                <option value="string" selected>Text (string)</option>
+                <option value="number">Number</option>
+                <option value="boolean">Boolean</option>
+                <option value="date">Date</option>
+            </select></div>
+        <div class="form-group"><label>Default Value <span class="text-muted text-xs">(optional)</span></label>
+            <input type="text" id="af-default" placeholder="Leave blank for empty"></div>
+        <div id="af-error" class="text-xs" style="color:var(--error);min-height:18px;"></div>`;
+
+    showModal('Add New Field', html, {
+        footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Add Field</button>',
+        onMount: (overlay, close) => {
+            const nameInput = overlay.querySelector('#af-name');
+            const typeSelect = overlay.querySelector('#af-type');
+            const defaultInput = overlay.querySelector('#af-default');
+            const errorEl = overlay.querySelector('#af-error');
+
+            overlay.querySelector('.cancel-btn').onclick = () => close();
+            overlay.querySelector('.apply-btn').onclick = () => {
+                const name = nameInput.value.trim();
+                if (!name) { errorEl.textContent = 'Field name is required'; nameInput.focus(); return; }
+                if (existingNames.has(name)) { errorEl.textContent = `Field "${name}" already exists`; nameInput.focus(); return; }
+                if (/[.\[\]]/.test(name)) { errorEl.textContent = 'Field name cannot contain . [ or ]'; nameInput.focus(); return; }
+
+                const type = typeSelect.value;
+                const rawDefault = defaultInput.value;
+
+                // Coerce default value to selected type
+                let defaultValue = rawDefault === '' ? null : rawDefault;
+                if (defaultValue !== null) {
+                    if (type === 'number') {
+                        defaultValue = Number(rawDefault);
+                        if (isNaN(defaultValue)) { errorEl.textContent = 'Default value is not a valid number'; defaultInput.focus(); return; }
+                    } else if (type === 'boolean') {
+                        defaultValue = ['true', '1', 'yes'].includes(rawDefault.toLowerCase());
+                    }
+                }
+
+                // Add field to schema
+                const maxOrder = (layer.schema?.fields || []).reduce((m, f) => Math.max(m, f.order || 0), -1);
+                const newField = {
+                    name,
+                    type,
+                    nullCount: defaultValue === null ? (layer.schema?.featureCount || 0) : 0,
+                    uniqueCount: defaultValue === null ? 0 : 1,
+                    sampleValues: defaultValue !== null ? [defaultValue] : [],
+                    min: type === 'number' && defaultValue !== null ? defaultValue : null,
+                    max: type === 'number' && defaultValue !== null ? defaultValue : null,
+                    selected: true,
+                    outputName: name,
+                    order: maxOrder + 1
+                };
+                if (!layer.schema) layer.schema = { fields: [], geometryType: null, featureCount: 0, crs: 'EPSG:4326' };
+                layer.schema.fields.push(newField);
+
+                // Populate data in every feature / row
+                if (layer.type === 'spatial' && layer.geojson?.features) {
+                    for (const feat of layer.geojson.features) {
+                        if (!feat.properties) feat.properties = {};
+                        feat.properties[name] = defaultValue;
+                    }
+                } else if (layer.rows) {
+                    for (const row of layer.rows) {
+                        row[name] = defaultValue;
+                    }
+                }
+
+                renderFieldList();
+                renderOutputPanel();
+                showToast(`Field "${name}" added`, 'success', { duration: 2000 });
+                close();
+            };
+
+            // Enter key to submit
+            const handleEnter = (e) => { if (e.key === 'Enter') overlay.querySelector('.apply-btn').click(); };
+            nameInput.addEventListener('keydown', handleEnter);
+            defaultInput.addEventListener('keydown', handleEnter);
+        }
+    });
+}
+
 /**
  * Inline editing helper — replaces element text with an input
  */
@@ -1872,6 +1968,7 @@ window.app = {
     },
     toggleField, selectAllFields, filterFields,
     renameLayer, renameField,
+    addField,
     doExport,
     fixAGOL,
     showDataTable,

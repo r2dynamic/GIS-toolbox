@@ -6,13 +6,20 @@
     "scope": "/GIS-toolbox/",
     "display": "standalone",
     "orientation": "any",
-    "background_color": "#f8fafc",
-    "theme_color": "#1e293b",
+    "background_color": "#0f1117",
+    "theme_color": "#d4a24e",
     "icons": [
         {
-            "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗺️</text></svg>",
+            "src": "icon.svg",
             "sizes": "any",
-            "type": "image/svg+xml"
+            "type": "image/svg+xml",
+            "purpose": "any"
+        },
+        {
+            "src": "icon-maskable.svg",
+            "sizes": "any",
+            "type": "image/svg+xml",
+            "purpose": "maskable"
         }
     ]
 }
