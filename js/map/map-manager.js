@@ -98,8 +98,9 @@ class MapManager {
             logger.warn('Map', 'Tile load error', { url: e.tile?.src });
         });
 
-        // Clear highlight when clicking empty map (but don't clear selection)
-        this.map.on('click', () => {
+        // Clear highlight when clicking empty map (but don't clear selection, and skip during drawing)
+        this.map.on('click', (e) => {
+            if (e.originalEvent?._drawHandled) return;
             if (!this._selectionMode) {
                 this.clearHighlight();
             }
@@ -206,6 +207,8 @@ class MapManager {
                 layer._datasetId = dataset.id;
 
                 layer.on('click', (e) => {
+                    // Skip feature clicks while drawing
+                    if (e.originalEvent?._drawHandled) return;
                     L.DomEvent.stopPropagation(e);
                     if (this._selectionMode) {
                         // Selection mode: click toggles selection, shift adds

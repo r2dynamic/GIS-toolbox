@@ -39,6 +39,8 @@ class DrawManager {
         this._clickHandler = null;
         this._moveHandler = null;
         this._dblClickHandler = null;
+        this._clickTimeout = null;   // debounce clicks vs dblclick
+        this._finishing = false;     // guard to prevent clicks during finish
     }
 
     /** Get the Leaflet map instance */
@@ -150,6 +152,7 @@ class DrawManager {
         this.cancelDraw();
         this._tool = tool;
         this._vertices = [];
+        this._finishing = false;
         this._updateToolButtons();
 
         // Disable map click-to-popup and selection during drawing
@@ -181,8 +184,11 @@ class DrawManager {
 
         // Also finish line/polygon with Enter key
         const enterHandler = (e) => {
-            if (e.key === 'Enter' && this._vertices.length >= 2) {
-                this._finishDraw();
+            if (e.key === 'Enter') {
+                const minVerts = this._tool === 'polygon' ? 3 : 2;
+                if (this._vertices.length >= minVerts) {
+                    this._finishDraw();
+                }
             }
         };
         this._enterHandler = enterHandler;
@@ -196,8 +202,15 @@ class DrawManager {
         this._clearPreview();
         this._vertices = [];
         this._tool = null;
+        this._finishing = false;
         this._updateToolButtons();
         this._setHint('');
+
+        // Clear pending click timeout
+        if (this._clickTimeout) {
+            clearTimeout(this._clickTimeout);
+            this._clickTimeout = null;
+        }
 
         // Restore cursor
         if (this.map) {
@@ -218,7 +231,14 @@ class DrawManager {
     // ============================
 
     _onMapClick(e) {
-        L.DomEvent.stopPropagation(e);
+        // Stop the click from reaching other map handlers (popup, highlight, etc.)
+        if (e.originalEvent) {
+            e.originalEvent.stopPropagation();
+            e.originalEvent._drawHandled = true;
+        }
+
+        if (this._finishing) return;
+
         const { lat, lng } = e.latlng;
 
         if (this._tool === 'point') {
@@ -227,9 +247,20 @@ class DrawManager {
             return;
         }
 
-        // Line or Polygon: accumulate vertices
+        // Line or Polygon: delay the click to distinguish from dblclick.
+        // If a dblclick fires within 250ms, the pending click is cancelled.
+        if (this._clickTimeout) clearTimeout(this._clickTimeout);
+        this._clickTimeout = setTimeout(() => {
+            this._clickTimeout = null;
+            if (this._finishing) return;
+            this._addVertex(lat, lng);
+        }, 200);
+    }
+
+    /** Add a vertex and update preview (separated for clarity) */
+    _addVertex(lat, lng) {
         this._vertices.push({ lat, lng });
-        this._addVertexMarker(e.latlng);
+        this._addVertexMarker(L.latLng(lat, lng));
         this._updatePreviewLine();
 
         const n = this._vertices.length;
@@ -247,9 +278,22 @@ class DrawManager {
     }
 
     _onMapDblClick(e) {
-        L.DomEvent.stopPropagation(e);
-        L.DomEvent.preventDefault(e);
-        if (this._vertices.length >= 2) {
+        // Stop dblclick from zooming and from propagating
+        if (e.originalEvent) {
+            e.originalEvent.preventDefault();
+            e.originalEvent.stopPropagation();
+            e.originalEvent._drawHandled = true;
+        }
+
+        // Cancel any pending single-click so it doesn't add an extra vertex
+        if (this._clickTimeout) {
+            clearTimeout(this._clickTimeout);
+            this._clickTimeout = null;
+        }
+
+        // Need minimum vertices to finish
+        const minVerts = this._tool === 'polygon' ? 3 : 2;
+        if (this._vertices.length >= minVerts) {
             this._finishDraw();
         }
     }
@@ -266,6 +310,7 @@ class DrawManager {
     _updatePreviewLine() {
         if (this._previewLine) {
             this.map.removeLayer(this._previewLine);
+            this._previewLine = null;
         }
         if (this._vertices.length < 2) return;
 
@@ -274,7 +319,6 @@ class DrawManager {
             latlngs.push(latlngs[0]); // close the ring for preview
         }
         this._previewLine = L.polyline(latlngs, DRAW_STYLE).addTo(this.map);
-        this._previewLayers.push(this._previewLine);
     }
 
     _updateRubberBand(cursorLatLng) {
@@ -318,6 +362,7 @@ class DrawManager {
     // ============================
 
     _finishDraw() {
+        this._finishing = true;
         if (this._tool === 'line' && this._vertices.length >= 2) {
             const coords = this._vertices.map(v => [v.lng, v.lat]);
             this._createFeature('LineString', coords);
@@ -326,6 +371,7 @@ class DrawManager {
             coords.push(coords[0]); // close ring
             this._createFeature('Polygon', [coords]);
         }
+        this._finishing = false;
     }
 
     /**
