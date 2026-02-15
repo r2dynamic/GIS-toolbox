@@ -26,11 +26,16 @@
     .header-left {
         gap: 4px;
         flex-shrink: 0;
+        min-width: 0;
     }
-    .header-logo { font-size: 16px; }
+    .header-logo svg { width: 20px; height: 20px; }
     .header-title {
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 600;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: clamp(40px, 15vw, 100px);
     }
 
     .header-center {
@@ -46,7 +51,7 @@
     .header-center .btn {
         padding: 4px 6px;
         font-size: 11px;
-        min-height: 30px;
+        min-height: 28px;
         gap: 3px;
         flex-shrink: 0;
     }
@@ -57,14 +62,14 @@
     }
     /* Keep only the emoji visible */
     .header-center .btn .btn-icon-text {
-        font-size: 14px;
+        font-size: 13px;
         line-height: 1;
     }
     .header-sep { display: none; }
     .header .btn-ghost {
-        padding: 3px 5px;
-        min-height: 28px;
-        font-size: 14px;
+        padding: 3px 4px;
+        min-height: 26px;
+        font-size: 13px;
     }
 
     .header-right {
@@ -81,10 +86,10 @@
     #btn-logs { padding: 2px 4px; font-size: 12px; }
     /* Undo/redo compact */
     #btn-undo, #btn-redo {
-        padding: 3px 5px;
-        font-size: 13px;
-        min-height: 28px;
-        min-width: 28px;
+        padding: 3px 4px;
+        font-size: 12px;
+        min-height: 26px;
+        min-width: 26px;
     }
     /* Hide merge button on mobile header – it's in tools tab */
     #btn-merge { display: none !important; }
@@ -610,12 +615,12 @@
         --bottom-nav-h: 48px;
     }
     .header-title { display: none; }
-    .header-logo { font-size: 18px; }
+    .header-logo svg { width: 18px; height: 18px; }
     .mobile-nav-item {
-        font-size: 8px;
+        font-size: 7px;
     }
     .mobile-nav-item span:first-child {
-        font-size: 16px;
+        font-size: 15px;
     }
     .mobile-content .btn-secondary {
         flex: 1 1 100%;
