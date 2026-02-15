@@ -3,14 +3,84 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>GIS Toolbox</title>
+    <title>GIS Toolbox — Free Online GIS Data Converter & Map Viewer</title>
+
+    <!-- SEO Meta Tags -->
+    <meta name="description" content="Free browser-based GIS toolkit. Import, transform, visualize, and export geospatial data — Shapefile, GeoJSON, KML, KMZ, CSV, Excel & more. No install, no server, no signup required.">
+    <meta name="keywords" content="GIS, geospatial, map, shapefile, geojson, kml, kmz, csv, excel, converter, data, toolbox, free, online, transform, export, import, spatial analysis, coordinates, leaflet">
+    <meta name="author" content="Ryan Romney">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://gis-toolbox.com/">
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://gis-toolbox.com/">
+    <meta property="og:title" content="GIS Toolbox — Free Online GIS Data Converter & Map Viewer">
+    <meta property="og:description" content="Import, transform, visualize, and export geospatial data right in your browser. Supports Shapefile, GeoJSON, KML, KMZ, CSV, Excel & more. Free and open source.">
+    <meta property="og:image" content="https://gis-toolbox.com/og-image.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:site_name" content="GIS Toolbox">
+    <meta property="og:locale" content="en_US">
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="GIS Toolbox — Free Online GIS Data Converter & Map Viewer">
+    <meta name="twitter:description" content="Import, transform, visualize, and export geospatial data right in your browser. No install, no server, no signup.">
+    <meta name="twitter:image" content="https://gis-toolbox.com/og-image.png">
 
     <!-- Web App Manifest -->
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#1c1c1e">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <link rel="apple-touch-icon" href="icon.svg">
+    <meta name="apple-mobile-web-app-title" content="GIS Toolbox">
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+
+    <!-- Google Analytics -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', 'G-ZTHRF9QMPV');
+    </script>
+
+    <!-- Structured Data (JSON-LD) -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "GIS Toolbox",
+        "url": "https://gis-toolbox.com",
+        "description": "Free browser-based GIS toolkit. Import, transform, visualize, and export geospatial data — Shapefile, GeoJSON, KML, KMZ, CSV, Excel & more.",
+        "applicationCategory": "UtilitiesApplication",
+        "operatingSystem": "Any",
+        "browserRequirements": "Requires a modern browser with JavaScript enabled",
+        "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "USD"
+        },
+        "author": {
+            "@type": "Person",
+            "name": "Ryan Romney"
+        },
+        "softwareVersion": "1.12",
+        "featureList": [
+            "Import Shapefile, GeoJSON, KML, KMZ, CSV, Excel",
+            "Export to GeoJSON, KML, KMZ, CSV, Excel, JSON",
+            "Interactive map visualization with Leaflet",
+            "Data transformation and field editing",
+            "Coordinate conversion tools",
+            "Spatial analysis with Turf.js",
+            "Photo geotagging and mapping",
+            "ArcGIS REST service import",
+            "Draw and create features on map",
+            "Works offline — no server required"
+        ]
+    }
+    </script>
 
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -21,8 +91,10 @@
     <link rel="stylesheet" href="css/main.css">
     <link rel="stylesheet" href="css/mobile.css">
 
-    <!-- Favicon -->
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%23e8b84a'/><stop offset='1' stop-color='%23d4a24e'/></linearGradient></defs><circle cx='32' cy='32' r='28' fill='none' stroke='url(%23g)' stroke-width='3'/><ellipse cx='32' cy='32' rx='14' ry='28' fill='none' stroke='url(%23g)' stroke-width='2'/><line x1='4' y1='32' x2='60' y2='32' stroke='url(%23g)' stroke-width='2'/><path d='M8 20h48M8 44h48' stroke='url(%23g)' stroke-width='1.5' opacity='.6'/><circle cx='44' cy='16' r='8' fill='%23d4a24e'/><path d='M44 10a6 6 0 0 1 6 6c0 4-6 10-6 10s-6-6-6-10a6 6 0 0 1 6-6z' fill='%23e8b84a'/><circle cx='44' cy='16' r='2.5' fill='%230f1117'/></svg>">
+    <!-- Favicons -->
+    <link rel="icon" type="image/svg+xml" href="icon.svg">
+    <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16x16.png">
 </head>
 <body>
     <!-- ================================ -->
