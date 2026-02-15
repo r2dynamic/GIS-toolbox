@@ -2,14 +2,15 @@
 // GIS Toolbox — Service Worker
 // Bump CACHE_VERSION to push updates
 // ============================================
-const CACHE_VERSION = '1.11.4';
+const CACHE_VERSION = '1.12.4';
 const CACHE_NAME = `gis-toolbox-v${CACHE_VERSION}`;
 
 const APP_FILES = [
     './',
     './index.html',
     './css/main.css',
-    './css/mobile.css'
+    './css/mobile.css',
+    './js/core/session-store.js'
 ];
 
 // CDN libraries — cached separately, rarely change

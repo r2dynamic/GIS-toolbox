@@ -9,7 +9,7 @@ import {
     getState, getLayers, getActiveLayer, addLayer, removeLayer,
     setActiveLayer, toggleLayerVisibility, reorderLayer, setUIState, toggleAGOLCompat
 } from './core/state.js';
-import { mergeDatasets, getSelectedFields, tableToSpatial, createSpatialDataset } from './core/data-model.js';
+import { mergeDatasets, getSelectedFields, tableToSpatial, createSpatialDataset, analyzeSchema, analyzeTableSchema } from './core/data-model.js';
 import { importFile, importFiles } from './import/importer.js';
 import { getAvailableFormats, exportDataset } from './export/exporter.js';
 import mapManager from './map/map-manager.js';
@@ -24,6 +24,7 @@ import { checkAGOLCompatibility, applyAGOLFixes } from './agol/compatibility.js'
 import * as gisTools from './tools/gis-tools.js';
 import * as coordUtils from './tools/coordinates.js';
 import drawManager from './map/draw-manager.js';
+import sessionStore from './core/session-store.js';
 
 // ============================
 // Initialize app
@@ -58,6 +59,27 @@ function boot() {
 
     logger.info('App', 'App ready');
 
+    // Auto-save status indicator
+    sessionStore.onSaveStatus((status) => {
+        const el = document.getElementById('save-indicator');
+        if (!el) return;
+        if (status === 'saving') {
+            el.textContent = 'Saving…';
+            el.classList.add('visible');
+        } else if (status === 'saved') {
+            el.textContent = 'Session saved';
+            el.classList.add('visible');
+            setTimeout(() => el.classList.remove('visible'), 1500);
+        } else if (status === 'error') {
+            el.textContent = 'Save failed';
+            el.classList.add('visible');
+            setTimeout(() => el.classList.remove('visible'), 2500);
+        }
+    });
+
+    // Check for a saved session and offer to restore
+    restoreSessionIfAvailable();
+
     // Show tool guide splash on every app open
     setTimeout(() => showToolInfo(), 300);
 }
@@ -66,6 +88,89 @@ if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', boot);
 } else {
     boot();
+}
+
+// ============================
+// Session Restore
+// ============================
+async function restoreSessionIfAvailable() {
+    try {
+        const info = await sessionStore.hasSession();
+        if (!info) return;
+
+        const ago = _timeAgo(info.timestamp);
+        const ok = await confirm(
+            'Restore Previous Session?',
+            `You have ${info.layerCount} layer${info.layerCount > 1 ? 's' : ''} saved from ${ago}. Would you like to restore them?`
+        );
+
+        if (ok) {
+            const session = await sessionStore.loadSession();
+            if (!session) { showToast('Could not read saved session.', 'warning'); return; }
+
+            let restored = 0;
+            for (const saved of session.layers) {
+                try {
+                    if (saved.type === 'spatial' && saved.geojson) {
+                        const schema = analyzeSchema(saved.geojson);
+                        addLayer({
+                            id: saved.id,
+                            name: saved.name,
+                            type: 'spatial',
+                            geojson: saved.geojson,
+                            schema,
+                            source: saved.source || { file: saved.name, format: 'session' },
+                            visible: saved.visible !== false,
+                            active: false,
+                            created: saved.created || new Date().toISOString()
+                        });
+                        restored++;
+                    } else if (saved.type === 'table' && saved.rows) {
+                        const fields = saved.rows.length > 0 ? Object.keys(saved.rows[0]) : [];
+                        const schema = analyzeTableSchema(saved.rows, fields);
+                        addLayer({
+                            id: saved.id,
+                            name: saved.name,
+                            type: 'table',
+                            rows: saved.rows,
+                            schema,
+                            source: saved.source || { file: saved.name, format: 'session' },
+                            visible: saved.visible !== false,
+                            active: false,
+                            created: saved.created || new Date().toISOString()
+                        });
+                        restored++;
+                    }
+                } catch (err) {
+                    logger.warn('Session', `Failed to restore layer "${saved.name}"`, { error: err.message });
+                }
+            }
+
+            // Set active layer from saved meta
+            if (session.meta?.activeLayerId) {
+                setActiveLayer(session.meta.activeLayerId);
+            }
+
+            showToast(`Restored ${restored} layer${restored !== 1 ? 's' : ''} from previous session`, 'success');
+            logger.info('Session', `Restored ${restored} layers`);
+        } else {
+            await sessionStore.clearSession();
+            logger.info('Session', 'User discarded saved session');
+        }
+    } catch (err) {
+        logger.error('Session', 'Restore failed', { error: err.message });
+    }
+}
+
+function _timeAgo(ts) {
+    const diff = Date.now() - ts;
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins} minute${mins > 1 ? 's' : ''} ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs} hour${hrs > 1 ? 's' : ''} ago`;
+    const days = Math.floor(hrs / 24);
+    return `${days} day${days > 1 ? 's' : ''} ago`;
 }
 
 function initMap() {
@@ -345,6 +450,7 @@ function setupEventListeners() {
 
     // Listen for layer changes to update UI
     bus.on('layers:changed', refreshUI);
+    bus.on('layers:changed', () => sessionStore.scheduleSave(getLayers()));
     bus.on('layer:active', () => { refreshUI(); updateSelectionUI(); });
     bus.on('task:error', (data) => {
         showErrorToast(data.error);
@@ -407,7 +513,7 @@ function renderLayerList() {
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                     <path d="M12 16v-4m0-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                 </svg>
-                <p>No layers loaded. Import a file or use a tool to get started.</p>
+                <p>No layers loaded. Import or drag and drop a file to start.</p>
             </div>`;
         return;
     }
@@ -3792,6 +3898,24 @@ window.toggleSection = function(header) {
 // ============================
 function showToolInfo() {
     const sections = [
+                {
+            title: 'How To',
+            tools: [
+                ['1️⃣ Import', '➕ Add most Geospatial files types 📂'],
+                ['2️⃣ Interact', '🛠️ View, edit, or manipulate ✏️'],
+                ['3️⃣ Export', '💾 Same file type or convert 📩']
+                
+            ]
+        },
+        {
+            title: 'About',
+            tools: [
+                ['GIS Toolbox', 'A modern web app for working with geospatial data.'],
+                ['How it Works', 'Client-side, no backend server processing. All work is done in the browser, no need to download/ install any software.'],
+                ['Tools', 'Most tools use Turf.js, a modular geospatial engine written in JavaScript']
+                
+            ]
+        },
         {
             title: 'Import & Sources',
             tools: [
@@ -3899,8 +4023,8 @@ function showToolInfo() {
     ];
 
     const html = sections.map(s => `
-        <div style="margin-bottom:16px;">
-            <div style="font-weight:700;font-size:14px;color:var(--gold-light);margin-bottom:6px;border-bottom:1px solid var(--border);padding-bottom:4px;">${s.title}</div>
+        <div style="margin-bottom:30px;">
+            <div style="font-weight:700;font-size:18px;color:var(--gold-light);margin-bottom:6px;border-bottom:2px solid var(--border);padding-bottom:4px;">${s.title}</div>
             <div style="display:flex;flex-direction:column;gap:4px;">
                 ${s.tools.map(([name, desc]) => `
                     <div style="display:flex;gap:8px;align-items:baseline;">
@@ -3912,7 +4036,7 @@ function showToolInfo() {
         </div>
     `).join('');
 
-    showModal('GIS Toolbox — Tool Guide', `<div style="max-height:70vh;overflow-y:auto;">${html}</div>`, { width: '560px' });
+    showModal('<span style="font-size:32px;font-weight:700;">GIS Toolbox</span> <span style="font-size:14px;font-weight:400;opacity:0.7;"> by Ryan Romney</span>', `<div style="max-height:70vh;overflow-y:auto;">${html}</div>`, { width: '560px' });
 }
 
 // ============================

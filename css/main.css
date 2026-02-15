@@ -103,6 +103,31 @@ html, body {
     background: rgba(255,255,255,0.1);
     margin: 0 6px;
 }
+
+/* Auto-save indicator */
+.save-indicator {
+    position: fixed;
+    top: 52px;
+    right: 16px;
+    padding: 4px 12px;
+    font-size: 11px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.7);
+    background: rgba(28,28,30,0.85);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 6px;
+    opacity: 0;
+    transform: translateY(-6px);
+    transition: opacity 0.25s ease, transform 0.25s ease;
+    pointer-events: none;
+    z-index: 900;
+}
+.save-indicator.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
 .header .btn-icon-text { font-size: 14px; }
 .header select {
     background: rgba(255,255,255,0.08);
@@ -140,8 +165,8 @@ html, body {
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-primary { background: var(--primary); color: white; }
 .btn-primary:hover:not(:disabled) { background: var(--primary-dark); }
-.btn-secondary { background: rgba(255,255,255,0.06); color: var(--text); border: 1px solid var(--border); }
-.btn-secondary:hover:not(:disabled) { background: rgba(255,255,255,0.1); }
+.btn-secondary { background: rgba(28, 28, 30, 0.8); color: var(--text); border: 1px solid rgba(255,255,255,0.12); }
+.btn-secondary:hover:not(:disabled) { background: rgba(44, 44, 46, 0.85); }
 .btn-ghost {
     background: transparent;
     color: var(--text-muted);
@@ -192,6 +217,23 @@ html, body {
 .panel-right {
     position: relative;
     background: var(--bg-panel);
+    background-image: url('../Side_Background.webp');
+    background-size: cover;
+    background-position: center;
+}
+.panel-left::before,
+.panel-right::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.82);
+    z-index: 0;
+    pointer-events: none;
+}
+.panel-left > *,
+.panel-right > * {
+    position: relative;
+    z-index: 1;
 }
 .panel-left {
     width: 320px;
@@ -250,10 +292,12 @@ html, body {
     align-items: center;
     justify-content: space-between;
     padding: 10px 14px;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid rgba(255,255,255,0.1);
     font-weight: 600;
     font-size: 13px;
-    background: var(--bg-panel);
+    background: rgba(20, 20, 22, 0.8);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     color: var(--text);
     flex-shrink: 0;
     letter-spacing: -0.1px;
@@ -265,20 +309,22 @@ html, body {
 }
 .panel-section {
     margin-bottom: 10px;
-    border: 1px solid var(--border);
+    border: 1px solid rgba(255,255,255,0.12);
     border-radius: var(--radius);
     overflow: hidden;
-    background: rgba(255, 255, 255, 0.02);
+    background: rgba(20, 20, 22, 0.75);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
 }
 .panel-section-header {
     padding: 9px 12px;
-    background: rgba(255, 255, 255, 0.04);
+    background: rgba(255, 255, 255, 0.08);
     font-weight: 600;
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.6px;
     color: var(--text-muted);
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid rgba(255,255,255,0.1);
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -401,7 +447,7 @@ input[type="search"], select, textarea {
     font-size: 13px;
     font-family: var(--font);
     color: var(--text);
-    background: rgba(255,255,255,0.04);
+    background: rgba(0,0,0,0.4);
     transition: border var(--transition), box-shadow var(--transition);
 }
 input:focus, select:focus, textarea:focus {
@@ -492,12 +538,12 @@ textarea { resize: vertical; min-height: 60px; }
     cursor: pointer;
     transition: background var(--transition);
 }
-.field-item:hover { background: rgba(255,255,255,0.03); }
+.field-item:hover { background: rgba(255,255,255,0.08); }
 .field-item .field-name { flex: 1; font-weight: 500; word-break: break-all; }
 .field-item .field-type {
     font-size: 10px;
     color: var(--text-light);
-    background: rgba(255,255,255,0.05);
+    background: rgba(255,255,255,0.1);
     padding: 1px 6px;
     border-radius: 4px;
     text-transform: uppercase;
@@ -520,7 +566,7 @@ textarea { resize: vertical; min-height: 60px; }
     transition: background var(--transition);
     position: relative;
 }
-.layer-item:hover { background: rgba(255,255,255,0.03); }
+.layer-item:hover { background: rgba(255,255,255,0.08); }
 .layer-item.active { background: rgba(10,132,255,0.08); border-left: 3px solid var(--primary); }
 .layer-icon { font-size: 16px; flex-shrink: 0; }
 .layer-name-row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; }
@@ -666,7 +712,7 @@ textarea { resize: vertical; min-height: 60px; }
 .progress-bar-container {
     position: relative;
     height: 20px;
-    background: rgba(255,255,255,0.06);
+    background: rgba(0,0,0,0.4);
     border-radius: 10px;
     overflow: hidden;
     margin: 8px 0;
@@ -1244,8 +1290,8 @@ textarea { resize: vertical; min-height: 60px; }
     align-items: center;
     gap: 4px;
     padding: 7px 10px;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid var(--border);
+    background: rgba(0,0,0,0.35);
+    border: 1px solid rgba(255,255,255,0.1);
     border-radius: var(--radius-sm);
     color: var(--text-muted);
     cursor: pointer;
@@ -1285,8 +1331,8 @@ textarea { resize: vertical; min-height: 60px; }
     align-items: center;
     gap: 12px;
     padding: 14px 16px;
-    background: rgba(255,255,255,0.03);
-    border: 1px solid var(--border);
+    background: rgba(20,20,22,0.7);
+    border: 1px solid rgba(255,255,255,0.1);
     border-radius: var(--radius);
     cursor: pointer;
     text-align: left;
