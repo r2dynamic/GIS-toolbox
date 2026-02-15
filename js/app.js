@@ -113,7 +113,7 @@ async function restoreSessionIfAvailable() {
                 try {
                     if (saved.type === 'spatial' && saved.geojson) {
                         const schema = analyzeSchema(saved.geojson);
-                        addLayer({
+                        const dataset = {
                             id: saved.id,
                             name: saved.name,
                             type: 'spatial',
@@ -123,7 +123,9 @@ async function restoreSessionIfAvailable() {
                             visible: saved.visible !== false,
                             active: false,
                             created: saved.created || new Date().toISOString()
-                        });
+                        };
+                        addLayer(dataset);
+                        mapManager.addLayer(dataset, getLayers().indexOf(dataset), { fit: false });
                         restored++;
                     } else if (saved.type === 'table' && saved.rows) {
                         const fields = saved.rows.length > 0 ? Object.keys(saved.rows[0]) : [];
@@ -149,6 +151,11 @@ async function restoreSessionIfAvailable() {
             // Set active layer from saved meta
             if (session.meta?.activeLayerId) {
                 setActiveLayer(session.meta.activeLayerId);
+            }
+
+            // Fit map to all restored spatial layers
+            if (restored > 0) {
+                mapManager.fitToAll();
             }
 
             showToast(`Restored ${restored} layer${restored !== 1 ? 's' : ''} from previous session`, 'success');
