@@ -2,7 +2,7 @@
 // GIS Toolbox — Service Worker
 // Bump CACHE_VERSION to push updates
 // ============================================
-const CACHE_VERSION = '1.10.0';
+const CACHE_VERSION = '1.10.4';
 const CACHE_NAME = `gis-toolbox-v${CACHE_VERSION}`;
 
 const APP_FILES = [
@@ -42,6 +42,7 @@ const APP_FILES = [
     './js/import/kmz-importer.js',
     './js/import/shapefile-importer.js',
     './js/map/map-manager.js',
+    './js/map/draw-manager.js',
     './js/photo/photo-mapper.js',
     './js/tools/coordinates.js',
     './js/tools/gis-tools.js',

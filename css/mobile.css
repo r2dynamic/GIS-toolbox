@@ -5,9 +5,9 @@
 
 @media (max-width: 767px) {
     :root {
-        --header-h: 42px;
-        --bottom-nav-h: 52px;
-        --mobile-pad: 6px;
+        --header-h: 46px;
+        --bottom-nav-h: 54px;
+        --mobile-pad: 8px;
     }
 
     /* ————— Global mobile resets ————— */
@@ -20,8 +20,8 @@
     /* ————— HEADER: single compact row ————— */
     .header {
         height: var(--header-h);
-        padding: 0 6px;
-        gap: 4px;
+        padding: 0 8px;
+        gap: 6px;
     }
     .header-left {
         gap: 4px;
@@ -30,7 +30,7 @@
     .header-logo { font-size: 16px; }
     .header-title {
         font-size: 13px;
-        font-weight: 700;
+        font-weight: 600;
     }
 
     .header-center {
@@ -131,23 +131,23 @@
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 1px;
+        gap: 2px;
         cursor: pointer;
         color: var(--text-muted);
         font-size: 9px;
-        font-weight: 600;
-        letter-spacing: 0.2px;
+        font-weight: 500;
+        letter-spacing: 0.3px;
         text-transform: uppercase;
         padding: 4px 2px;
         -webkit-tap-highlight-color: transparent;
-        transition: color 0.15s ease, background 0.15s ease;
+        transition: color 0.15s ease;
         border: none;
         background: none;
         user-select: none;
         position: relative;
     }
     .mobile-nav-item:active {
-        background: var(--bg);
+        background: rgba(255,255,255,0.04);
     }
     .mobile-nav-item.active {
         color: var(--primary);
@@ -184,11 +184,11 @@
 
     /* Section headers inside mobile panels */
     .mobile-content h3 {
-        font-size: 13px;
-        font-weight: 700;
+        font-size: 12px;
+        font-weight: 600;
         color: var(--text-muted);
         text-transform: uppercase;
-        letter-spacing: 0.4px;
+        letter-spacing: 0.5px;
         margin: 0 0 6px 0;
         padding: 4px 0;
     }
@@ -204,7 +204,7 @@
         border: 1px solid var(--border);
     }
     .mobile-content .layer-item.active {
-        background: rgba(59,130,246,0.1);
+        background: rgba(10,132,255,0.08);
         border-color: var(--primary);
         border-left: 3px solid var(--primary);
     }
@@ -291,7 +291,7 @@
         width: 100vw;
         max-width: 100vw;
         max-height: 88vh;
-        border-radius: 12px 12px 0 0;
+        border-radius: 16px 16px 0 0;
         animation: slideUp 0.2s ease;
     }
     .modal-header {
@@ -633,6 +633,22 @@
     .header-center .btn span.btn-icon-text + span { display: none; }
     .btn { font-size: 12px; padding: 5px 10px; }
     .btn-sm { font-size: 11px; padding: 3px 8px; }
+}
+
+/* ————— Draw toolbar mobile ————— */
+@media (max-width: 767px) {
+    .draw-toolbar {
+        top: auto;
+        bottom: 56px;
+        left: 8px;
+        right: 8px;
+        transform: none;
+        min-width: 0;
+    }
+    .draw-tool-btn {
+        padding: 8px 6px;
+        font-size: 11px;
+    }
 }
 
 /* ————— Desktop: hide mobile elements ————— */

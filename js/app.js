@@ -23,6 +23,7 @@ import { arcgisImporter } from './arcgis/rest-importer.js';
 import { checkAGOLCompatibility, applyAGOLFixes } from './agol/compatibility.js';
 import * as gisTools from './tools/gis-tools.js';
 import * as coordUtils from './tools/coordinates.js';
+import drawManager from './map/draw-manager.js';
 
 // ============================
 // Initialize app
@@ -228,6 +229,25 @@ function setupEventListeners() {
     // Coordinates
     document.getElementById('btn-coordinates')?.addEventListener('click', openCoordinatesModal);
 
+    // Draw Layer
+    document.getElementById('btn-draw-layer')?.addEventListener('click', createDrawLayer);
+
+    // Handle drawn features
+    bus.on('draw:featureCreated', ({ layerId, feature }) => {
+        const layer = getLayers().find(l => l.id === layerId);
+        if (!layer || layer.type !== 'spatial') return;
+        saveSnapshot(layer.id, 'Draw feature', layer.geojson);
+        layer.geojson.features.push(feature);
+        import('./core/data-model.js').then(dm => {
+            layer.schema = dm.analyzeSchema(layer.geojson);
+            bus.emit('layer:updated', layer);
+            bus.emit('layers:changed', getLayers());
+            mapManager.addLayer(layer, getLayers().indexOf(layer));
+            refreshUI();
+        });
+        showToast(`Added ${feature.geometry.type} to ${layer.name}`, 'success');
+    });
+
     // Logs
     document.getElementById('btn-logs')?.addEventListener('click', toggleLogs);
 
@@ -380,6 +400,7 @@ function renderLayerList() {
                         <button class="btn-icon" title="Rename" onclick="event.stopPropagation(); window.app.renameLayer('${layer.id}')">✏️</button>
                         <button class="btn-icon" title="Toggle visibility" onclick="event.stopPropagation(); window.app.toggleVisibility('${layer.id}')">
                             ${layer.visible ? '👁️' : '👁️‍🗨️'}
+                        </button>
                         </button>
                         <button class="btn-icon" title="Zoom to layer" onclick="event.stopPropagation(); window.app.zoomToLayer('${layer.id}')">🔍</button>
                         <button class="btn-icon" title="Remove" onclick="event.stopPropagation(); window.app.removeLayer('${layer.id}')">🗑️</button>
@@ -3204,6 +3225,69 @@ async function doExport(format) {
 // ============================
 // Other handlers
 // ============================
+
+// ——— Draw Layer ———
+function createDrawLayer() {
+    const activeLayer = getActiveLayer();
+    const hasActiveSpatial = activeLayer && activeLayer.type === 'spatial';
+
+    const items = [
+        { icon: '🆕', label: 'New draw layer', desc: 'Create an empty layer and start drawing', action: 'new' },
+    ];
+    if (hasActiveSpatial) {
+        items.push({ icon: '📝', label: `Draw on "${activeLayer.name}"`, desc: 'Add features to the active layer', action: 'active' });
+    }
+
+    // If no active spatial layer, just create a new one directly
+    if (!hasActiveSpatial) {
+        _doCreateDrawLayer();
+        return;
+    }
+
+    const html = items.map(item =>
+        `<button class="draw-option-btn" data-action="${item.action}">
+            <span style="font-size:18px;">${item.icon}</span>
+            <div><strong>${item.label}</strong><div style="font-size:11px;color:var(--text-muted);">${item.desc}</div></div>
+        </button>`
+    ).join('');
+
+    showModal('Draw Features', `<div class="draw-options">${html}</div>`, {
+        width: '380px',
+        onMount: (overlay, close) => {
+            overlay.querySelectorAll('.draw-option-btn').forEach(btn => {
+                btn.onclick = () => {
+                    close();
+                    if (btn.dataset.action === 'new') {
+                        _doCreateDrawLayer();
+                    } else {
+                        openDrawTools(activeLayer.id);
+                    }
+                };
+            });
+        }
+    });
+}
+
+function _doCreateDrawLayer() {
+    const geojson = { type: 'FeatureCollection', features: [] };
+    const dataset = createSpatialDataset('Draw Layer', geojson, { format: 'draw' });
+    dataset._isDrawLayer = true;
+    addLayer(dataset);
+    setActiveLayer(dataset.id);
+    mapManager.addLayer(dataset, getLayers().indexOf(dataset), { fit: false });
+    refreshUI();
+    drawManager.showToolbar(dataset.id, dataset.name);
+    showToast('Draw layer created — use the toolbar to draw features', 'success');
+}
+
+function openDrawTools(layerId) {
+    const layer = getLayers().find(l => l.id === layerId);
+    if (!layer || layer.type !== 'spatial') return showToast('Need a spatial layer', 'warning');
+    setActiveLayer(layerId);
+    refreshUI();
+    drawManager.showToolbar(layerId, layer.name);
+}
+
 async function handleMergeLayers() {
     const layers = getLayers();
     if (layers.length < 2) return showToast('Need at least 2 layers to merge', 'warning');
@@ -4002,7 +4086,9 @@ window.app = {
     selectAllFeatures,
     invertSelection,
     deleteSelectedFeatures,
-    openFeatureEditor
+    openFeatureEditor,
+    openDrawTools,
+    createDrawLayer
 };
 
 // Subscribe to logs for panel updates
