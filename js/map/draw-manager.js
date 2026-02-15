@@ -297,6 +297,11 @@ class DrawManager {
             this._clickTimeout = null;
         }
 
+        // Add the double-click point as the final vertex
+        if (e.latlng) {
+            this._addVertex(e.latlng.lat, e.latlng.lng);
+        }
+
         // Need minimum vertices to finish
         const minVerts = this._tool === 'polygon' ? 3 : 2;
         if (this._vertices.length >= minVerts) {
