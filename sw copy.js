@@ -2,14 +2,54 @@
 // GIS Toolbox — Service Worker
 // Bump CACHE_VERSION to push updates
 // ============================================
-const CACHE_VERSION = '1.11.4';
+const CACHE_VERSION = '1.11.2';
 const CACHE_NAME = `gis-toolbox-v${CACHE_VERSION}`;
 
 const APP_FILES = [
     './',
     './index.html',
+    './manifest.json',
+    './icon.svg',
+    './icon-maskable.svg',
     './css/main.css',
-    './css/mobile.css'
+    './css/mobile.css',
+    './js/app.js',
+    './js/agol/compatibility.js',
+    './js/arcgis/rest-importer.js',
+    './js/core/data-model.js',
+    './js/core/error-handler.js',
+    './js/core/event-bus.js',
+    './js/core/logger.js',
+    './js/core/state.js',
+    './js/core/task-runner.js',
+    './js/dataprep/template-builder.js',
+    './js/dataprep/transform-history.js',
+    './js/dataprep/transforms.js',
+    './js/export/csv-exporter.js',
+    './js/export/excel-exporter.js',
+    './js/export/exporter.js',
+    './js/export/geojson-exporter.js',
+    './js/export/json-exporter.js',
+    './js/export/kml-exporter.js',
+    './js/export/kmz-exporter.js',
+    './js/export/shapefile-exporter.js',
+    './js/import/csv-importer.js',
+    './js/import/excel-importer.js',
+    './js/import/geojson-importer.js',
+    './js/import/importer.js',
+    './js/import/json-importer.js',
+    './js/import/kml-importer.js',
+    './js/import/kmz-importer.js',
+    './js/import/shapefile-importer.js',
+    './js/map/map-manager.js',
+    './js/map/draw-manager.js',
+    './js/photo/photo-mapper.js',
+    './js/tools/coordinates.js',
+    './js/tools/gis-tools.js',
+    './js/ui/modals.js',
+    './js/ui/toast.js',
+    './header_background.jpeg',
+    './Side_Background.jpeg'
 ];
 
 // CDN libraries — cached separately, rarely change
