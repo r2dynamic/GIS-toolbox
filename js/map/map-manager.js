@@ -117,6 +117,9 @@ class MapManager {
         this.highlightLayer = null; // currently highlighted feature layer
         this._originalStyles = new Map(); // layer -> original style for unhighlight
 
+        // ── Import fence state ──
+        this._importFence = null;       // { bounds: L.latLngBounds, layer: L.rectangle }
+
         // ── Feature selection state ──
         this._selections = new Map();       // layerId -> Set<featureIndex>
         this._selectionLayers = new Map();   // layerId -> L.layerGroup of selection highlights
@@ -853,9 +856,104 @@ class MapManager {
                 this.map.off('mousemove', onMouseMove);
                 this.map.off('mouseup', onMouseUp);
                 document.removeEventListener('keydown', onKeyDown);
+                // Do NOT remove rect here — the caller (spatial analyzer) will
+                // display its own preview layer from the returned bbox.
+                if (rect) { try { this.map.removeLayer(rect); } catch {} }
+                if (banner) banner.remove();
+                this._interactionCleanup = null;
+            };
+
+            this._interactionCleanup = cleanup;
+            this.map.on('mousedown', onMouseDown);
+            this.map.on('mousemove', onMouseMove);
+            this.map.on('mouseup', onMouseUp);
+            document.addEventListener('keydown', onKeyDown);
+        });
+    }
+
+    // ============================
+    // Import Fence
+    // ============================
+
+    /**
+     * Draw a persistent import fence rectangle.
+     * Returns [west, south, east, north] or null if cancelled.
+     */
+    startImportFenceDraw() {
+        // Clear any existing fence first
+        this.clearImportFence();
+
+        return new Promise((resolve) => {
+            this._cancelInteraction();
+
+            const container = this.map.getContainer();
+            container.style.cursor = 'crosshair';
+
+            const banner = this._showInteractionBanner(
+                'Click and drag to draw your import fence. Only features inside this area will be imported.',
+                () => { cleanup(); resolve(null); }
+            );
+
+            let startLatLng = null;
+            let rect = null;
+
+            const onMouseDown = (e) => {
+                startLatLng = e.latlng;
+                this.map.dragging.disable();
+            };
+
+            const onMouseMove = (e) => {
+                if (!startLatLng) return;
+                const bounds = L.latLngBounds(startLatLng, e.latlng);
                 if (rect) {
-                    // Flash the rectangle briefly then remove
-                    setTimeout(() => { if (rect) this.map.removeLayer(rect); }, 800);
+                    rect.setBounds(bounds);
+                } else {
+                    rect = L.rectangle(bounds, {
+                        color: '#f59e0b', weight: 2, fillOpacity: 0.08,
+                        dashArray: '8,5', className: 'import-fence-rect'
+                    }).addTo(this.map);
+                }
+            };
+
+            const onMouseUp = (e) => {
+                if (!startLatLng) return;
+                this.map.dragging.enable();
+                const bounds = L.latLngBounds(startLatLng, e.latlng);
+
+                // Store the persistent fence
+                if (rect) {
+                    rect.setStyle({ dashArray: '10,6', weight: 2.5 });
+                    // Add a tooltip
+                    rect.bindTooltip('Import Fence — only features in this area will be imported', {
+                        permanent: false, direction: 'center', className: 'fence-tooltip'
+                    });
+                    this._importFence = { bounds, layer: rect };
+                }
+
+                cleanup(false); // don't remove rect
+                resolve([
+                    bounds.getWest(), bounds.getSouth(),
+                    bounds.getEast(), bounds.getNorth()
+                ]);
+            };
+
+            const onKeyDown = (e) => {
+                if (e.key === 'Escape') {
+                    this.map.dragging.enable();
+                    if (rect) this.map.removeLayer(rect);
+                    cleanup(true);
+                    resolve(null);
+                }
+            };
+
+            const cleanup = (removeRect = true) => {
+                container.style.cursor = '';
+                this.map.off('mousedown', onMouseDown);
+                this.map.off('mousemove', onMouseMove);
+                this.map.off('mouseup', onMouseUp);
+                document.removeEventListener('keydown', onKeyDown);
+                if (removeRect && rect) {
+                    this.map.removeLayer(rect);
                 }
                 if (banner) banner.remove();
                 this._interactionCleanup = null;
@@ -867,6 +965,40 @@ class MapManager {
             this.map.on('mouseup', onMouseUp);
             document.addEventListener('keydown', onKeyDown);
         });
+    }
+
+    /** Remove the import fence from the map */
+    clearImportFence() {
+        if (this._importFence) {
+            if (this._importFence.layer) {
+                this.map.removeLayer(this._importFence.layer);
+            }
+            this._importFence = null;
+            bus.emit('importFence:cleared');
+        }
+    }
+
+    /** Get the current fence bounds as [west, south, east, north] or null */
+    getImportFenceBbox() {
+        if (!this._importFence) return null;
+        const b = this._importFence.bounds;
+        return [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+    }
+
+    /** Get the fence as an Esri envelope object for ArcGIS REST queries */
+    getImportFenceEsriEnvelope() {
+        if (!this._importFence) return null;
+        const b = this._importFence.bounds;
+        return {
+            xmin: b.getWest(), ymin: b.getSouth(),
+            xmax: b.getEast(), ymax: b.getNorth(),
+            spatialReference: { wkid: 4326 }
+        };
+    }
+
+    /** Check if an import fence is active */
+    get hasImportFence() {
+        return !!this._importFence;
     }
 
     /**

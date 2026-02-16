@@ -20,11 +20,13 @@ import { applyTemplate, previewTemplate, getTemplateFields } from './dataprep/te
 import { saveSnapshot, undo as undoHistory, redo as redoHistory, getHistoryState } from './dataprep/transform-history.js';
 import { photoMapper } from './photo/photo-mapper.js';
 import { arcgisImporter } from './arcgis/rest-importer.js';
+import ARCGIS_ENDPOINTS from './arcgis/endpoints.js';
 import { checkAGOLCompatibility, applyAGOLFixes } from './agol/compatibility.js';
 import * as gisTools from './tools/gis-tools.js';
 import * as coordUtils from './tools/coordinates.js';
 import drawManager from './map/draw-manager.js';
 import sessionStore from './core/session-store.js';
+import { SpatialAnalyzerWidget } from './widgets/spatial-analyzer.js';
 
 // ============================
 // Initialize app
@@ -263,7 +265,7 @@ function setupDragDrop() {
 // ============================
 // File import handler
 // ============================
-async function handleFileImport(files) {
+async function handleFileImport(files, fenceBbox = null) {
     const progress = showProgressModal('Importing Files');
     let currentTask = null;
 
@@ -281,13 +283,21 @@ async function handleFileImport(files) {
         const { datasets, errors } = await importFiles(files);
         progress.close();
 
+        let totalFiltered = 0;
         for (const ds of datasets) {
+            if (fenceBbox) {
+                const before = ds.type === 'spatial' ? ds.geojson?.features?.length : 0;
+                filterDatasetByFence(ds, fenceBbox);
+                const after = ds.type === 'spatial' ? ds.geojson?.features?.length : 0;
+                totalFiltered += (before - after);
+            }
             addLayer(ds);
             mapManager.addLayer(ds, getLayers().indexOf(ds), { fit: true });
         }
 
         if (datasets.length > 0) {
-            showToast(`Imported ${datasets.length} layer(s)`, 'success');
+            const fenceNote = fenceBbox && totalFiltered > 0 ? ` (${totalFiltered} features outside fence excluded)` : '';
+            showToast(`Imported ${datasets.length} layer(s)${fenceNote}`, 'success');
             refreshUI();
         }
         if (errors.length > 0) {
@@ -317,7 +327,7 @@ function setupEventListeners() {
     importInput.addEventListener('change', () => {
         if (importInput.files.length > 0) {
             const files = Array.from(importInput.files);
-            handleFileImport(files);
+            handleFileImport(files, _fenceBbox);
         }
     });
     document.getElementById('btn-import')?.addEventListener('click', () => {
@@ -333,6 +343,9 @@ function setupEventListeners() {
     // Photo Mapper
     document.getElementById('btn-photo-mapper')?.addEventListener('click', openPhotoMapper);
     document.getElementById('btn-photo-mapper-mobile')?.addEventListener('click', openPhotoMapper);
+
+    // Import Fence
+    document.getElementById('btn-fence')?.addEventListener('click', startImportFence);
 
     // ArcGIS REST Import
     document.getElementById('btn-arcgis')?.addEventListener('click', openArcGISImporter);
@@ -855,6 +868,18 @@ function renderDataPrepTools() {
                     <button class="btn btn-sm btn-secondary" onclick="window.app.openJoinTool()">Join</button>
                     <button class="btn btn-sm btn-secondary" onclick="window.app.openValidation()">Validate</button>
                     <button class="btn btn-sm btn-secondary" onclick="window.app.addUID()">Add UID</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel-section">
+            <div class="panel-section-header" onclick="toggleSection(this)">
+                GIS Widgets <span class="arrow">▼</span>
+            </div>
+            <div class="panel-section-body">
+                <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">Pre-built workflows for common GIS tasks.</div>
+                <div style="display:flex; flex-wrap:wrap; gap:4px;">
+                    <span class="geo-tool-btn"><button class="btn btn-sm btn-secondary" onclick="window.app.openSpatialAnalyzer()">🔎 Find Features in Area</button><span class="geo-tip">Search for features from one layer that fall inside a drawn area or polygon layer.</span></span>
                 </div>
             </div>
         </div>
@@ -2791,65 +2816,159 @@ async function processPhotoFiles(files, modalOverlay) {
 }
 
 // ============================
+// GIS Widgets
+// ============================
+let _spatialAnalyzerWidget = null;
+
+function openSpatialAnalyzer() {
+    if (!_spatialAnalyzerWidget) {
+        _spatialAnalyzerWidget = new SpatialAnalyzerWidget();
+    }
+    // Inject dependencies
+    _spatialAnalyzerWidget.getLayers = getLayers;
+    _spatialAnalyzerWidget.getLayerById = (id) => getLayers().find(l => l.id === id);
+    _spatialAnalyzerWidget.mapManager = mapManager;
+    _spatialAnalyzerWidget.addLayer = addLayer;
+    _spatialAnalyzerWidget.createSpatialDataset = createSpatialDataset;
+    _spatialAnalyzerWidget.refreshUI = refreshUI;
+    _spatialAnalyzerWidget.showToast = showToast;
+    _spatialAnalyzerWidget.toggle();
+}
+
+// ============================
+// Import Fence
+// ============================
+let _fenceBbox = null; // [west, south, east, north] when fence is active
+
+async function startImportFence() {
+    // If fence already active, show options modal
+    if (mapManager.hasImportFence) {
+        const html = `
+            <div class="info-box text-xs mb-8">
+                ⛶ An import fence is currently active on the map. All imports (files and ArcGIS) are filtered to this area.
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+                <button class="btn btn-primary" id="fence-opt-new" style="padding:10px 16px;">
+                    ⛶ Place New Fence
+                    <div style="font-size:11px;opacity:0.7;margin-top:2px;">Remove current fence and draw a new one</div>
+                </button>
+                <button class="btn btn-secondary" id="fence-opt-clear" style="padding:10px 16px;">
+                    🗑️ Remove Fence
+                    <div style="font-size:11px;opacity:0.7;margin-top:2px;">Clear fence from map — imports will no longer be filtered</div>
+                </button>
+            </div>`;
+
+        showModal('Import Fence', html, {
+            width: '400px',
+            onMount: (overlay, close) => {
+                overlay.querySelector('#fence-opt-new').addEventListener('click', async () => {
+                    close();
+                    await drawNewFence();
+                });
+                overlay.querySelector('#fence-opt-clear').addEventListener('click', () => {
+                    mapManager.clearImportFence();
+                    _fenceBbox = null;
+                    updateFenceButton();
+                    close();
+                    showToast('Import fence removed', 'info');
+                });
+            }
+        });
+        return;
+    }
+
+    // No fence yet — draw one
+    await drawNewFence();
+}
+
+async function drawNewFence() {
+    const bbox = await mapManager.startImportFenceDraw();
+    if (!bbox) {
+        showToast('Fence cancelled', 'info');
+        return;
+    }
+    _fenceBbox = bbox;
+    updateFenceButton();
+    showToast('Import fence placed — all imports will be filtered to this area', 'success');
+}
+
+function updateFenceButton() {
+    const btn = document.getElementById('btn-fence');
+    if (!btn) return;
+    if (mapManager.hasImportFence) {
+        btn.classList.remove('btn-secondary');
+        btn.classList.add('btn-primary');
+        btn.innerHTML = '<span class="btn-icon-text">⛶</span><span>Import Fence ✓</span>';
+    } else {
+        btn.classList.remove('btn-primary');
+        btn.classList.add('btn-secondary');
+        btn.innerHTML = '<span class="btn-icon-text">⛶</span><span>Import Fence</span>';
+    }
+}
+
+/** Filter a spatial dataset's features to only those intersecting a bbox */
+function filterDatasetByFence(dataset, bbox) {
+    if (!bbox || dataset.type !== 'spatial' || !dataset.geojson?.features?.length) return dataset;
+
+    const [west, south, east, north] = bbox;
+    const fencePoly = turf.bboxPolygon([west, south, east, north]);
+
+    const before = dataset.geojson.features.length;
+    dataset.geojson.features = dataset.geojson.features.filter(f => {
+        try {
+            return turf.booleanIntersects(f, fencePoly);
+        } catch (_) {
+            return true; // keep features that fail the check
+        }
+    });
+    const after = dataset.geojson.features.length;
+
+    if (before !== after) {
+        logger.info('ImportFence', `Filtered ${before} → ${after} features (${before - after} outside fence)`);
+        // Re-analyze schema since feature count changed
+        dataset.schema = analyzeSchema(dataset.geojson);
+    }
+
+    return dataset;
+}
+
+// ============================
 // ArcGIS REST Importer modal
 // ============================
 async function openArcGISImporter() {
+    const spatialFilter = mapManager.getImportFenceEsriEnvelope();
+    const fenceBadge = spatialFilter ? '<div class="success-box text-xs mb-8" style="padding:6px 10px;">⛶ <strong>Import Fence active</strong> — only features inside the fence will be downloaded from the server.</div>' : '';
+
     const html = `
-        <div class="tabs mb-8" id="arcgis-tabs">
-            <div class="tab" data-atab="catalog">Catalog</div>
-            <div class="tab active" data-atab="direct">Direct URL</div>
-            <div class="tab" data-atab="browse">Browse & Add</div>
+        ${fenceBadge}
+        <div class="info-box text-xs mb-8">
+            Select a layer from the list below or enter a custom ArcGIS REST URL. Only publicly accessible layers are supported (no login required).
         </div>
 
-        <!-- ======== CATALOG TAB ======== -->
-        <div id="arcgis-tab-catalog" class="hidden">
-            <div class="info-box text-xs mb-8">
-                Saved service endpoints. Scan new services in the <strong>Browse & Add</strong> tab to add them here.
-            </div>
-            <div class="input-with-btn" style="margin-bottom:8px;">
-                <input type="search" id="catalog-search" placeholder="Search catalog...">
-                <span id="catalog-count" class="text-xs text-muted" style="white-space:nowrap;"></span>
-            </div>
-            <div id="catalog-list" style="max-height:60vh;overflow-y:auto;display:flex;flex-direction:column;gap:6px;"></div>
-            <div id="catalog-empty" class="hidden" style="text-align:center;padding:24px 0;">
-                <div class="text-muted">No saved endpoints yet.</div>
-                <div class="text-xs text-muted mt-8">Use the <strong>Browse & Add</strong> tab to scan a REST services directory and save it.</div>
-            </div>
+        <!-- Preset layer list -->
+        <div style="max-height:45vh;overflow-y:auto;display:flex;flex-direction:column;gap:4px;margin-bottom:12px;" id="arcgis-preset-list">
+            ${ARCGIS_ENDPOINTS.map((l, i) => `
+                <div class="arcgis-preset-item" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-surface);">
+                    <div style="flex:1;min-width:0;">
+                        <div style="font-weight:600;font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${l.name}</div>
+                        <div style="font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${l.url}">${l.url}</div>
+                    </div>
+                    <button class="btn btn-sm btn-primary arcgis-import-btn" data-url="${l.url}" data-name="${l.name}" style="flex-shrink:0;">Import</button>
+                </div>
+            `).join('')}
         </div>
 
-        <!-- ======== DIRECT URL TAB ======== -->
-        <div id="arcgis-tab-direct">
-        <div class="wizard-steps" id="arcgis-steps">
-            <div class="wizard-step active" data-step="1"><span class="wizard-step-num">1</span><span class="step-text">URL</span></div>
-            <div class="wizard-step-line"></div>
-            <div class="wizard-step" data-step="2"><span class="wizard-step-num">2</span><span class="step-text">Query</span></div>
-            <div class="wizard-step-line"></div>
-            <div class="wizard-step" data-step="3"><span class="wizard-step-num">3</span><span class="step-text">Download</span></div>
-        </div>
-
-        <div id="arcgis-step1">
-            <div class="form-group">
-                <label>ArcGIS FeatureServer Layer URL</label>
-                <input type="url" id="arcgis-url" placeholder="https://services.arcgis.com/.../FeatureServer/0">
+        <!-- Custom URL -->
+        <div style="border-top:1px solid var(--border);padding-top:12px;">
+            <div class="form-group" style="margin-bottom:8px;">
+                <label style="font-weight:600;font-size:13px;">Custom URL</label>
+                <input type="url" id="arcgis-custom-url" placeholder="https://services.arcgis.com/.../FeatureServer/0">
             </div>
-            <div class="info-box text-xs mb-8">
-                Paste a public ArcGIS REST FeatureServer layer URL. Only publicly accessible layers are supported (no login required).
-            </div>
-            <button class="btn btn-primary" id="arcgis-validate">Validate & Fetch Metadata</button>
-            <div id="arcgis-meta" class="hidden mt-8"></div>
+            <button class="btn btn-primary" id="arcgis-custom-import">Import from URL</button>
         </div>
 
-        <div id="arcgis-step2" class="hidden">
-            <h4>Query Builder</h4>
-            <div class="form-group"><label>Where clause</label>
-                <input type="text" id="arcgis-where" value="1=1" placeholder="1=1"></div>
-            <div class="form-group"><label>Fields to include</label>
-                <div id="arcgis-fields" style="max-height:200px; overflow-y:auto;"></div></div>
-            <label class="checkbox-row"><input type="checkbox" id="arcgis-geom" checked> Include geometry</label>
-            <button class="btn btn-primary mt-8" id="arcgis-download">Download Features</button>
-        </div>
-
-        <div id="arcgis-step3" class="hidden">
+        <!-- Download progress (hidden by default) -->
+        <div id="arcgis-progress" class="hidden mt-8">
             <div style="text-align:center;">
                 <div class="spinner" style="margin:0 auto 12px;"></div>
                 <div id="arcgis-progress-text">Starting download...</div>
@@ -2859,510 +2978,24 @@ async function openArcGISImporter() {
                 </div>
                 <button class="btn btn-secondary btn-sm mt-8" id="arcgis-cancel">Cancel</button>
             </div>
-        </div>
-        </div>
-
-        <!-- ======== BROWSE SERVICES TAB ======== -->
-        <div id="arcgis-tab-browse" class="hidden">
-            <div class="form-group">
-                <label>ArcGIS REST Services Directory</label>
-                <select id="browse-preset" style="margin-bottom:6px;">
-                    <option value="">— Choose a preset or enter custom URL —</option>
-                    <option value="https://central.udot.utah.gov/server/rest/services">UDOT Central Server</option>
-                    <option value="https://services.arcgis.com/pA2nEVnB6tquxgOW/arcgis/rest/services">UDOT ArcGIS Online</option>
-                    <option value="custom">Custom URL...</option>
-                </select>
-                <input type="url" id="browse-url" placeholder="https://services.arcgis.com/orgId/arcgis/rest/services/" class="hidden">
-            </div>
-            <div class="info-box text-xs mb-8">
-                Select a preset endpoint or enter a custom REST services directory URL. The tool will scan all folders and list every available Feature/Map Server layer.
-            </div>
-
-            <div style="border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;background:var(--bg-surface);">
-                <div style="font-weight:600;font-size:12px;color:var(--text-muted);margin-bottom:6px;">Keyword Filter (applied after scan)</div>
-                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-                    <input type="text" id="browse-keyword" placeholder="e.g. traffic, roads, bridges..." style="flex:1;min-width:140px;">
-                    <select id="browse-match-mode" style="width:auto;">
-                        <option value="contains">Contains</option>
-                        <option value="exact">Exact Match</option>
-                        <option value="starts">Starts With</option>
-                        <option value="ends">Ends With</option>
-                        <option value="not">Does NOT Contain</option>
-                    </select>
-                </div>
-            </div>
-
-            <button class="btn btn-primary" id="browse-scan">Scan Services</button>
-            <div id="browse-status" class="text-xs text-muted mt-8" style="min-height:18px;"></div>
-            <button class="btn btn-secondary btn-sm hidden mt-8" id="browse-save-catalog">💾 Save to Catalog</button>
-
-            <div id="browse-results" class="hidden mt-8">
-                <div class="input-with-btn" style="margin-bottom:8px;">
-                    <input type="search" id="browse-search" placeholder="Quick filter results...">
-                    <span id="browse-count" class="text-xs text-muted" style="white-space:nowrap;"></span>
-                </div>
-                <div id="browse-list" style="max-height:60vh;overflow-y:auto;display:flex;flex-direction:column;gap:2px;"></div>
-            </div>
         </div>`;
 
     showModal('ArcGIS REST Import', html, {
-        width: '750px',
+        width: '600px',
         onMount: (overlay, close) => {
-            let meta = null;
 
-            // ---- Catalog persistence ----
-            const CATALOG_KEY = 'gis-toolbox-arcgis-catalog';
-
-            function loadCatalog() {
-                try { return JSON.parse(localStorage.getItem(CATALOG_KEY)) || []; }
-                catch (_) { return []; }
-            }
-
-            function saveCatalog(catalog) {
-                localStorage.setItem(CATALOG_KEY, JSON.stringify(catalog));
-            }
-
-            const geomIcon = (gt) => {
-                if (!gt || gt === 'Table') return '📊';
-                if (gt === 'Point' || gt === 'MultiPoint') return '📍';
-                if (gt === 'LineString' || gt === 'MultiLineString' || gt.includes('line') || gt.includes('Line')) return '📏';
-                if (gt === 'Polygon' || gt === 'MultiPolygon' || gt.includes('olygon')) return '🔷';
-                return '📎';
-            };
-
-            // Format metadata subtitle for a layer
-            const metaLine = (l) => {
-                const parts = [l.serviceName, l.serviceType, l.geometryType || 'Table'];
-                if (l.author) parts.push(`👤 ${l.author}`);
-                if (l.copyright) parts.push(`© ${l.copyright}`);
-                if (l.lastEditDate) {
-                    const d = new Date(l.lastEditDate);
-                    if (!isNaN(d)) parts.push(`✏️ ${d.toLocaleDateString()}`);
-                }
-                return parts.join(' · ');
-            };
-
-            const metaTooltip = (l) => {
-                const lines = [l.url];
-                if (l.description) lines.push(l.description.replace(/<[^>]*>/g, '').substring(0, 200));
-                if (l.author) lines.push('Author: ' + l.author);
-                if (l.copyright) lines.push('Copyright: ' + l.copyright);
-                if (l.lastEditDate) {
-                    const d = new Date(l.lastEditDate);
-                    if (!isNaN(d)) lines.push('Last edited: ' + d.toLocaleDateString());
-                }
-                if (l.capabilities) lines.push('Capabilities: ' + l.capabilities);
-                if (l.serverVersion) lines.push('Server: v' + l.serverVersion);
-                return lines.join('\n');
-            };
-
-            // ---- Tab switching ----
-            overlay.querySelectorAll('#arcgis-tabs .tab').forEach(tab => {
-                tab.onclick = () => {
-                    overlay.querySelectorAll('#arcgis-tabs .tab').forEach(t => t.classList.remove('active'));
-                    tab.classList.add('active');
-                    const which = tab.dataset.atab;
-                    overlay.querySelector('#arcgis-tab-catalog').classList.toggle('hidden', which !== 'catalog');
-                    overlay.querySelector('#arcgis-tab-direct').classList.toggle('hidden', which !== 'direct');
-                    overlay.querySelector('#arcgis-tab-browse').classList.toggle('hidden', which !== 'browse');
-                    if (which === 'catalog') renderCatalog();
-                };
-            });
-
-            // ---- Catalog Tab ----
-            function renderCatalog(filter = '') {
-                const catalog = loadCatalog();
-                const q = filter.toLowerCase();
-                const emptyEl = overlay.querySelector('#catalog-empty');
-                const listEl = overlay.querySelector('#catalog-list');
-                const countEl = overlay.querySelector('#catalog-count');
-
-                if (catalog.length === 0) {
-                    emptyEl.classList.remove('hidden');
-                    listEl.innerHTML = '';
-                    countEl.textContent = '';
-                    return;
-                }
-                emptyEl.classList.add('hidden');
-
-                // Filter across sources and their layers
-                let totalLayers = 0;
-                const filteredCatalog = catalog.map(src => {
-                    const filteredLayers = q ? src.layers.filter(l =>
-                        l.name.toLowerCase().includes(q) ||
-                        l.serviceName.toLowerCase().includes(q) ||
-                        src.label.toLowerCase().includes(q)
-                    ) : src.layers;
-                    totalLayers += filteredLayers.length;
-                    return { ...src, filteredLayers };
-                }).filter(src => q ? src.filteredLayers.length > 0 : true);
-
-                countEl.textContent = `${totalLayers} layer(s) in ${filteredCatalog.length} source(s)`;
-
-                listEl.innerHTML = filteredCatalog.map((src, si) => `
-                    <div class="catalog-source" style="border:1px solid var(--border);border-radius:6px;overflow:hidden;">
-                        <div class="catalog-source-header" data-src="${si}" style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg-surface);cursor:pointer;user-select:none;">
-                            <span class="catalog-arrow" style="font-size:10px;transition:transform .2s;">▶</span>
-                            <div style="flex:1;min-width:0;">
-                                <div style="font-weight:600;font-size:13px;color:var(--gold-light);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${src.url}">${src.label}</div>
-                                <div style="font-size:11px;color:var(--text-muted);">${src.filteredLayers.length} layers · Scanned ${new Date(src.scannedAt).toLocaleDateString()}</div>
-                            </div>
-                            <button class="btn btn-sm btn-ghost catalog-rescan-btn" data-url="${src.url}" title="Rescan" style="font-size:14px;">🔄</button>
-                            <button class="btn btn-sm btn-ghost catalog-remove-btn" data-url="${src.url}" title="Remove" style="font-size:14px;">🗑️</button>
-                        </div>
-                        <div class="catalog-source-layers hidden" data-src-layers="${si}" style="display:flex;flex-direction:column;gap:2px;padding:4px 6px;max-height:50vh;overflow-y:auto;">
-                            ${src.filteredLayers.map(l => `
-                                <div style="display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:4px;border:1px solid var(--border);background:var(--bg);" title="${metaTooltip(l).replace(/"/g, '&quot;')}">
-                                    <span style="font-size:14px;">${geomIcon(l.geometryType)}</span>
-                                    <div style="flex:1;min-width:0;">
-                                        <div style="font-weight:600;font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${l.name}</div>
-                                        <div style="font-size:10px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${metaLine(l)}</div>
-                                    </div>
-                                    <button class="btn btn-sm btn-primary catalog-import-btn" data-url="${l.url}" style="flex-shrink:0;font-size:11px;padding:2px 8px;">Import</button>
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>
-                `).join('');
-
-                // Toggle source expand/collapse
-                listEl.querySelectorAll('.catalog-source-header').forEach(header => {
-                    header.onclick = (e) => {
-                        if (e.target.closest('.catalog-rescan-btn') || e.target.closest('.catalog-remove-btn')) return;
-                        const idx = header.dataset.src;
-                        const layersEl = listEl.querySelector(`[data-src-layers="${idx}"]`);
-                        const arrow = header.querySelector('.catalog-arrow');
-                        const isOpen = !layersEl.classList.contains('hidden');
-                        layersEl.classList.toggle('hidden');
-                        arrow.style.transform = isOpen ? '' : 'rotate(90deg)';
-                    };
-                });
-
-                // Remove buttons
-                listEl.querySelectorAll('.catalog-remove-btn').forEach(btn => {
-                    btn.onclick = (e) => {
-                        e.stopPropagation();
-                        const catalog = loadCatalog();
-                        const updated = catalog.filter(s => s.url !== btn.dataset.url);
-                        saveCatalog(updated);
-                        renderCatalog(overlay.querySelector('#catalog-search')?.value || '');
-                        showToast('Removed from catalog', 'info', { duration: 1500 });
-                    };
-                });
-
-                // Rescan buttons
-                listEl.querySelectorAll('.catalog-rescan-btn').forEach(btn => {
-                    btn.onclick = async (e) => {
-                        e.stopPropagation();
-                        btn.disabled = true;
-                        btn.textContent = '⏳';
-                        try {
-                            const layers = await arcgisImporter.browseServices(btn.dataset.url);
-                            const catalog = loadCatalog();
-                            const entry = catalog.find(s => s.url === btn.dataset.url);
-                            if (entry) {
-                                entry.layers = layers;
-                                entry.scannedAt = new Date().toISOString();
-                                saveCatalog(catalog);
-                            }
-                            showToast(`Rescanned: ${layers.length} layers found`, 'success', { duration: 2000 });
-                            renderCatalog(overlay.querySelector('#catalog-search')?.value || '');
-                        } catch (err) {
-                            showToast('Rescan failed: ' + err.message, 'error');
-                            btn.textContent = '🔄';
-                            btn.disabled = false;
-                        }
-                    };
-                });
-
-                // Import buttons
-                wireImportButtons(listEl.querySelectorAll('.catalog-import-btn'));
-            }
-
-            function wireImportButtons(buttons) {
-                buttons.forEach(btn => {
-                    btn.onclick = async (e) => {
-                        e.stopPropagation();
-                        const layerUrl = btn.dataset.url;
-                        btn.disabled = true;
-                        btn.textContent = 'Loading...';
-                        try {
-                            const layerMeta = await arcgisImporter.fetchMetadata(layerUrl);
-                            const dataset = await arcgisImporter.downloadFeatures({
-                                outFields: '*', where: '1=1', returnGeometry: true
-                            }, {
-                                throwIfCancelled() {},
-                                updateProgress(p, s) { btn.textContent = s || `${Math.round(p)}%`; },
-                                _cancelled: false
-                            });
-                            if (dataset) {
-                                addLayer(dataset);
-                                mapManager.addLayer(dataset, getLayers().indexOf(dataset), { fit: true });
-                                const count = dataset.type === 'spatial' ? dataset.geojson.features.length : dataset.rows.length;
-                                showToast(`Imported ${count.toLocaleString()} features: ${layerMeta.name}`, 'success');
-                                refreshUI();
-                            }
-                            btn.textContent = '✅ Done';
-                            btn.classList.remove('btn-primary');
-                            btn.classList.add('btn-secondary');
-                        } catch (err) {
-                            btn.textContent = '❌ Error';
-                            showErrorToast(handleError(err, 'ArcGIS', 'Import'));
-                        }
-                    };
-                });
-            }
-
-            // Catalog search
-            overlay.querySelector('#catalog-search')?.addEventListener('input', (e) => {
-                renderCatalog(e.target.value);
-            });
-
-            // Show catalog on open if it has entries
-            const existingCatalog = loadCatalog();
-            if (existingCatalog.length > 0) {
-                // Auto-switch to catalog tab
-                overlay.querySelectorAll('#arcgis-tabs .tab').forEach(t => t.classList.remove('active'));
-                overlay.querySelector('[data-atab="catalog"]').classList.add('active');
-                overlay.querySelector('#arcgis-tab-direct').classList.add('hidden');
-                overlay.querySelector('#arcgis-tab-catalog').classList.remove('hidden');
-                renderCatalog();
-            }
-
-            // ---- Browse Services ----
-            let browseResults = [];
-
-            // Preset dropdown wiring
-            const presetSelect = overlay.querySelector('#browse-preset');
-            const browseUrlInput = overlay.querySelector('#browse-url');
-            presetSelect.addEventListener('change', () => {
-                const val = presetSelect.value;
-                if (val === 'custom') {
-                    browseUrlInput.classList.remove('hidden');
-                    browseUrlInput.value = '';
-                    browseUrlInput.focus();
-                } else {
-                    browseUrlInput.classList.add('hidden');
-                    browseUrlInput.value = val; // sync hidden input with preset value
-                }
-            });
-
-            // Keyword filter re-renders on input
-            overlay.querySelector('#browse-keyword')?.addEventListener('input', () => {
-                if (browseResults.length > 0) {
-                    renderBrowseList(overlay, browseResults, overlay.querySelector('#browse-search')?.value || '');
-                }
-            });
-            overlay.querySelector('#browse-match-mode')?.addEventListener('change', () => {
-                if (browseResults.length > 0) {
-                    renderBrowseList(overlay, browseResults, overlay.querySelector('#browse-search')?.value || '');
-                }
-            });
-
-            overlay.querySelector('#browse-scan').onclick = async () => {
-                // Resolve URL from preset or custom input
-                let url;
-                if (presetSelect.value === 'custom' || presetSelect.value === '') {
-                    url = browseUrlInput.value.trim();
-                } else {
-                    url = presetSelect.value;
-                }
-                if (!url) return showToast('Select a preset or enter a services directory URL', 'warning');
-
-                const scanBtn = overlay.querySelector('#browse-scan');
-                const statusEl = overlay.querySelector('#browse-status');
-                scanBtn.disabled = true;
-                scanBtn.textContent = 'Scanning...';
-                statusEl.textContent = 'Connecting...';
-                overlay.querySelector('#browse-results').classList.add('hidden');
-                browseResults = [];
-
-                try {
-                    browseResults = await arcgisImporter.browseServices(url, (msg) => {
-                        statusEl.textContent = msg;
-                    });
-
-                    if (browseResults.length === 0) {
-                        statusEl.textContent = 'No Feature Server/Map Server layers found at this URL.';
-                    } else {
-                        statusEl.textContent = `Found ${browseResults.length} layer(s)`;
-                        overlay.querySelector('#browse-results').classList.remove('hidden');
-                        renderBrowseList(overlay, browseResults, '');
-                    }
-                } catch (e) {
-                    const classified = handleError(e, 'ArcGIS', 'Browse Services');
-                    statusEl.innerHTML = `<span style="color:var(--error);">${classified.message}</span>`;
-                } finally {
-                    scanBtn.disabled = false;
-                    scanBtn.textContent = 'Scan Services';
-                }
-            };
-
-            // Search/filter browse results
-            overlay.querySelector('#browse-search')?.addEventListener('input', (e) => {
-                renderBrowseList(overlay, browseResults, e.target.value);
-            });
-
-            function renderBrowseList(overlay, items, filter) {
-                const q = filter.toLowerCase();
-
-                // Keyword + match mode filtering
-                const keyword = (overlay.querySelector('#browse-keyword')?.value || '').trim().toLowerCase();
-                const matchMode = overlay.querySelector('#browse-match-mode')?.value || 'contains';
-
-                let keywordFiltered = items;
-                if (keyword) {
-                    keywordFiltered = items.filter(l => {
-                        const haystack = (l.name + ' ' + l.serviceName).toLowerCase();
-                        switch (matchMode) {
-                            case 'exact':   return l.name.toLowerCase() === keyword || l.serviceName.toLowerCase() === keyword;
-                            case 'starts':  return l.name.toLowerCase().startsWith(keyword) || l.serviceName.toLowerCase().startsWith(keyword);
-                            case 'ends':    return l.name.toLowerCase().endsWith(keyword) || l.serviceName.toLowerCase().endsWith(keyword);
-                            case 'not':     return !haystack.includes(keyword);
-                            case 'contains':
-                            default:        return haystack.includes(keyword);
-                        }
-                    });
-                }
-
-                // Quick filter on top of keyword results
-                const filtered = q ? keywordFiltered.filter(l =>
-                    l.name.toLowerCase().includes(q) ||
-                    l.serviceName.toLowerCase().includes(q) ||
-                    (l.geometryType || '').toLowerCase().includes(q)
-                ) : keywordFiltered;
-
-                overlay.querySelector('#browse-count').textContent = `${filtered.length} of ${items.length}`;
-                const listEl = overlay.querySelector('#browse-list');
-
-                listEl.innerHTML = filtered.map((l, i) => `
-                    <div class="browse-layer-item" data-idx="${i}" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:4px;cursor:pointer;border:1px solid var(--border);background:var(--bg-surface);" title="${metaTooltip(l).replace(/"/g, '&quot;')}">
-                        <span style="font-size:16px;">${geomIcon(l.geometryType)}</span>
-                        <div style="flex:1;min-width:0;">
-                            <div style="font-weight:600;font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${l.name}</div>
-                            <div style="font-size:11px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${metaLine(l)}</div>
-                            ${l.description ? `<div style="font-size:10px;color:var(--text-muted);opacity:0.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px;" title="${l.description.replace(/<[^>]*>/g, '').replace(/"/g, '&quot;')}">${l.description.replace(/<[^>]*>/g, '').substring(0, 120)}</div>` : ''}
-                        </div>
-                        <button class="btn btn-sm btn-primary browse-import-btn" data-url="${l.url}" style="flex-shrink:0;">Import</button>
-                    </div>
-                `).join('');
-
-                wireImportButtons(listEl.querySelectorAll('.browse-import-btn'));
-
-                // Show Save to Catalog button when results exist
-                const saveBtn = overlay.querySelector('#browse-save-catalog');
-                if (items.length > 0) saveBtn.classList.remove('hidden');
-            }
-
-            // Save to Catalog
-            overlay.querySelector('#browse-save-catalog').onclick = () => {
-                if (browseResults.length === 0) return;
-                const url = overlay.querySelector('#browse-url').value.trim();
-                const catalog = loadCatalog();
-
-                // Derive a label from the URL
-                let label;
-                try {
-                    const u = new URL(url);
-                    label = u.hostname;
-                    // If it's services.arcgis.com, include the org segment
-                    if (u.hostname === 'services.arcgis.com') {
-                        const parts = u.pathname.split('/').filter(Boolean);
-                        label = `ArcGIS Online (${parts[0] || 'org'})`;
-                    }
-                } catch (_) { label = url; }
-
-                // Upsert: replace if same URL exists
-                const existing = catalog.findIndex(s => s.url === url);
-                const entry = {
-                    url,
-                    label,
-                    layers: browseResults,
-                    scannedAt: new Date().toISOString()
-                };
-
-                if (existing >= 0) {
-                    catalog[existing] = entry;
-                } else {
-                    catalog.push(entry);
-                }
-
-                saveCatalog(catalog);
-                showToast(`Saved ${browseResults.length} layers to catalog`, 'success');
-
-                // Switch to catalog tab
-                overlay.querySelectorAll('#arcgis-tabs .tab').forEach(t => t.classList.remove('active'));
-                overlay.querySelector('[data-atab="catalog"]').classList.add('active');
-                overlay.querySelector('#arcgis-tab-browse').classList.add('hidden');
-                overlay.querySelector('#arcgis-tab-catalog').classList.remove('hidden');
-                renderCatalog();
-            };
-
-            // ---- Direct URL (existing logic) ----
-
-            overlay.querySelector('#arcgis-validate').onclick = async () => {
-                const url = overlay.querySelector('#arcgis-url').value.trim();
-                if (!url) return showToast('Enter a URL', 'warning');
-
-                overlay.querySelector('#arcgis-validate').disabled = true;
-                overlay.querySelector('#arcgis-validate').textContent = 'Validating...';
-
-                try {
-                    meta = await arcgisImporter.fetchMetadata(url);
-
-                    // Show metadata
-                    overlay.querySelector('#arcgis-meta').classList.remove('hidden');
-                    overlay.querySelector('#arcgis-meta').innerHTML = `
-                        <div class="success-box">
-                            <strong>✅ ${meta.name}</strong><br>
-                            Type: ${meta.geometryType || 'Table'} · Fields: ${meta.fields.length} ·
-                            Max/page: ${meta.maxRecordCount}
-                            ${meta.totalCount != null ? ` · Total: ${meta.totalCount.toLocaleString()}` : ''}
-                        </div>`;
-
-                    // Populate query builder
-                    overlay.querySelector('#arcgis-step1').classList.add('hidden');
-                    overlay.querySelector('#arcgis-step2').classList.remove('hidden');
-                    overlay.querySelectorAll('.wizard-step')[0].classList.remove('active');
-                    overlay.querySelectorAll('.wizard-step')[0].classList.add('done');
-                    overlay.querySelectorAll('.wizard-step')[1].classList.add('active');
-
-                    overlay.querySelector('#arcgis-fields').innerHTML = meta.fields.map(f =>
-                        `<label class="checkbox-row"><input type="checkbox" value="${f.name}" checked> ${f.alias || f.name} <span class="text-xs text-muted">(${f.type})</span></label>`
-                    ).join('');
-
-                } catch (e) {
-                    const classified = handleError(e, 'ArcGIS', 'Validate URL');
-                    overlay.querySelector('#arcgis-meta').classList.remove('hidden');
-                    overlay.querySelector('#arcgis-meta').innerHTML = `
-                        <div class="error-box">
-                            <div class="error-title">${classified.title}</div>
-                            <div>${classified.message}</div>
-                            <div class="error-guidance">${classified.guidance}</div>
-                            ${classified.technical ? `<div class="error-details-toggle" onclick="this.nextElementSibling.classList.toggle('hidden')">Show details</div>
-                            <div class="error-technical hidden">${classified.technical}</div>` : ''}
-                        </div>`;
-                } finally {
-                    overlay.querySelector('#arcgis-validate').disabled = false;
-                    overlay.querySelector('#arcgis-validate').textContent = 'Validate & Fetch Metadata';
-                }
-            };
-
-            overlay.querySelector('#arcgis-download').onclick = async () => {
-                const selectedFields = Array.from(overlay.querySelectorAll('#arcgis-fields input:checked')).map(el => el.value);
-                const where = overlay.querySelector('#arcgis-where').value || '1=1';
-                const returnGeometry = overlay.querySelector('#arcgis-geom').checked;
-
-                // Switch to download step
-                overlay.querySelector('#arcgis-step2').classList.add('hidden');
-                overlay.querySelector('#arcgis-step3').classList.remove('hidden');
-                overlay.querySelectorAll('.wizard-step')[1].classList.remove('active');
-                overlay.querySelectorAll('.wizard-step')[1].classList.add('done');
-                overlay.querySelectorAll('.wizard-step')[2].classList.add('active');
-
+            // Shared import function
+            async function importLayer(url, name, statusEl) {
+                const progressEl = overlay.querySelector('#arcgis-progress');
                 const progressText = overlay.querySelector('#arcgis-progress-text');
                 const progressBar = overlay.querySelector('#arcgis-progress-bar');
                 const progressPct = overlay.querySelector('#arcgis-progress-pct');
+
+                // Show progress
+                progressEl.classList.remove('hidden');
+                progressBar.style.width = '0%';
+                progressPct.textContent = '0%';
+                progressText.textContent = `Connecting to ${name || 'layer'}...`;
 
                 const taskHandler = {
                     throwIfCancelled() { if (this._cancelled) { const e = new Error('Cancelled'); e.cancelled = true; throw e; } },
@@ -3378,31 +3011,64 @@ async function openArcGISImporter() {
                     taskHandler._cancelled = true;
                     arcgisImporter.cancel();
                     showToast('Download cancelled', 'warning');
-                    close();
+                    progressEl.classList.add('hidden');
                 };
 
                 try {
-                    const dataset = await arcgisImporter.downloadFeatures({
-                        outFields: selectedFields.length > 0 ? selectedFields : '*',
-                        where,
-                        returnGeometry
-                    }, taskHandler);
+                    await arcgisImporter.fetchMetadata(url);
+                    const queryOpts = {
+                        outFields: '*', where: '1=1', returnGeometry: true
+                    };
+                    if (spatialFilter) queryOpts.spatialFilter = spatialFilter;
+                    const dataset = await arcgisImporter.downloadFeatures(queryOpts, taskHandler);
 
                     if (dataset) {
                         addLayer(dataset);
                         mapManager.addLayer(dataset, getLayers().indexOf(dataset), { fit: true });
                         const count = dataset.type === 'spatial' ? dataset.geojson.features.length : dataset.rows.length;
-                        showToast(`Imported ${count.toLocaleString()} features from ArcGIS`, 'success');
+                        showToast(`Imported ${count.toLocaleString()} features: ${dataset.name}`, 'success');
                         refreshUI();
                     }
-                    close();
+                    if (statusEl) {
+                        statusEl.textContent = '✅ Done';
+                        statusEl.classList.remove('btn-primary');
+                        statusEl.classList.add('btn-secondary');
+                        statusEl.disabled = true;
+                    }
+                    progressEl.classList.add('hidden');
                 } catch (e) {
+                    progressEl.classList.add('hidden');
                     if (e.cancelled) return;
-                    const classified = handleError(e, 'ArcGIS', 'Download');
+                    const classified = handleError(e, 'ArcGIS', 'Import');
                     showErrorToast(classified);
-                    close();
+                    if (statusEl) {
+                        statusEl.textContent = 'Import';
+                        statusEl.disabled = false;
+                    }
                 }
-            };
+            }
+
+            // Wire preset Import buttons
+            overlay.querySelectorAll('.arcgis-import-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    btn.disabled = true;
+                    btn.textContent = 'Loading...';
+                    importLayer(btn.dataset.url, btn.dataset.name, btn);
+                });
+            });
+
+            // Wire custom URL import
+            overlay.querySelector('#arcgis-custom-import').addEventListener('click', () => {
+                const url = overlay.querySelector('#arcgis-custom-url').value.trim();
+                if (!url) return showToast('Enter a URL', 'warning');
+                const customBtn = overlay.querySelector('#arcgis-custom-import');
+                customBtn.disabled = true;
+                customBtn.textContent = 'Loading...';
+                importLayer(url, 'Custom Layer', customBtn).finally(() => {
+                    customBtn.disabled = false;
+                    customBtn.textContent = 'Import from URL';
+                });
+            });
         }
     });
 }
@@ -4104,6 +3770,13 @@ function showToolInfo() {
             ]
         },
         {
+            title: 'GIS Widgets',
+            tools: [
+                ['Overview', 'Pre-built workflows that combine multiple steps into a simple, guided interface for common GIS tasks.'],
+                ['Import Fence', 'Draw a rectangle on the map to set a spatial filter. All subsequent imports (file or ArcGIS REST) only load features inside the fence. ArcGIS REST queries are filtered server-side so only matching features are downloaded, preventing large dataset browser issues.']
+            ]
+        },
+        {
             title: 'GIS Tools — Measurement',
             tools: [
                 ['Distance', 'Measure the straight-line distance between two points you click on the map.'],
@@ -4158,12 +3831,9 @@ function showToolInfo() {
         {
             title: 'ArcGIS REST Import',
             tools: [
-                ['Overview', 'Pull features directly from any public or accessible ArcGIS REST endpoint into the toolbox — no download or login required.'],
-                ['Direct URL', 'Paste a Feature Server or Map Server layer URL (e.g. .../FeatureServer/0). The tool auto-detects the service, queries all features, and imports them as a spatial layer with full attributes.'],
-                ['Browse & Add', 'Select a preset endpoint (UDOT Central, UDOT ArcGIS Online) or enter a custom REST services directory URL. The tool scans all folders and lists every available layer for one-click import.'],
-                ['Keyword Filter', 'After scanning, filter layers by keyword with match modes: Contains, Exact Match, Starts With, Ends With, or Does NOT Contain. A secondary quick-filter further narrows results.'],
-                ['Catalog', 'Save scanned endpoints to a persistent catalog (stored locally). View, search, rescan, or remove saved sources anytime — the catalog auto-opens when entries exist.'],
-                ['Layer Metadata', 'Each layer displays service author, copyright/owner, last edit date, description, capabilities, and server version. Hover any layer for the full detail tooltip.'],
+                ['Overview', 'Import features directly from public ArcGIS REST endpoints — no download or login required. All processing is done in the browser.'],
+                ['Preset Layers', 'Choose from a curated list of UDOT and Utah layers including Routes ALRS, Reference Posts, Mile Points, Region Boundaries, Bridge Locations, Lanes, County Boundaries, and Municipal Boundaries.'],
+                ['Custom URL', 'Enter any public ArcGIS REST FeatureServer or MapServer layer URL to import features directly.'],
                 ['Supported', 'Works with Feature Servers, Map Servers, and individual layer endpoints. Handles paginated services that return features in batches automatically.']
             ]
         },
@@ -4189,7 +3859,8 @@ function showToolInfo() {
         </div>
     `).join('');
 
-    showModal('<span style="font-size:32px;font-weight:700;">GIS Toolbox</span> <span style="font-size:14px;font-weight:400;opacity:0.7;"> by Ryan Romney</span>', `<div style="max-height:70vh;overflow-y:auto;">${html}</div>`, { width: '560px' });
+    const mobileBanner = `<div class="splash-mobile-notice">📱 Mobile site still under development — for a better experience use a larger screen</div>`;
+    showModal('<span style="font-size:32px;font-weight:700;">GIS Toolbox</span> <span style="font-size:14px;font-weight:400;opacity:0.7;"> by Ryan Romney</span>', `${mobileBanner}<div style="max-height:70vh;overflow-y:auto;">${html}</div>`, { width: '560px' });
 }
 
 // ============================
@@ -4396,6 +4067,8 @@ window.app = {
     openPhotoMapper: openPhotoMapper,
     openArcGISImporter: openArcGISImporter,
     openCoordinatesModal: openCoordinatesModal,
+    startImportFence,
+    openSpatialAnalyzer,
     mergeLayers: handleMergeLayers,
     showToolInfo,
     // Selection
