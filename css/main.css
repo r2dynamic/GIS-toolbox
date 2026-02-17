@@ -329,7 +329,7 @@ html, body {
 }
 .panel-section {
     margin-bottom: 10px;
-    border: 1px solid rgba(255,255,255,0.12);
+    border: 1px solid #dbac3f;
     border-radius: var(--radius);
     overflow: hidden;
     background: rgba(20, 20, 22, 0.75);
@@ -425,7 +425,12 @@ html, body {
     color: var(--text-muted) !important;
     font-size: 10px;
 }
-.leaflet-control-attribution a { color: var(--text-light) !important; }
+.leaflet-control-attribution a {
+    color: var(--text-light) !important;
+    pointer-events: none;
+    text-decoration: none;
+    cursor: default;
+}
 
 .map-overlay-msg,
 .map-overlay {

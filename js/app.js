@@ -4252,7 +4252,10 @@ function showToolInfo() {
     const isMobile = window.innerWidth < 768;
     const mobileBanner = `<div class="splash-mobile-notice">📱 Mobile site still under development — for a better experience use a larger screen</div>`;
     const splashWidth = isMobile ? '99vw' : '560px';
-    showModal('<div style="display:inline-flex;align-items:baseline;gap:8px;"><img src="icons/TitleIcon.png" alt="" width="36" height="36" style="border-radius:4px;flex-shrink:0;align-self:center;"><span style="font-size:32px;font-weight:700;line-height:1;">GIS-Toolbox<span style="font-size:0.65em;font-weight:400;opacity:0.7;">.com</span></span><span style="font-size:9px;font-weight:400;opacity:0.7;white-space:nowrap;">by Ryan Romney</span></div>', `${mobileBanner}<div style="overflow-y:auto;flex:1;">${html}</div>`, {
+    const titleFontSize = isMobile ? 'clamp(18px, 5.5vw, 32px)' : '32px';
+    const titleIconSize = isMobile ? '28' : '36';
+    const byFontSize = isMobile ? 'clamp(7px, 2vw, 9px)' : '9px';
+    showModal(`<div style="display:inline-flex;align-items:baseline;gap:6px;flex-wrap:nowrap;max-width:100%;"><img src="icons/TitleIcon.png" alt="" width="${titleIconSize}" height="${titleIconSize}" style="border-radius:4px;flex-shrink:0;align-self:center;"><span style="font-size:${titleFontSize};font-weight:700;line-height:1;white-space:nowrap;">GIS-Toolbox<span style="font-size:0.65em;font-weight:400;opacity:0.7;">.com</span></span><span style="font-size:${byFontSize};font-weight:400;opacity:0.7;white-space:nowrap;">by Ryan Romney</span></div>`, `${mobileBanner}<div style="overflow-y:auto;flex:1;">${html}</div>`, {
         width: splashWidth,
         onMount: (overlay) => {
             if (isMobile) {

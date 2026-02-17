@@ -104,7 +104,7 @@
             <h1 class="header-title">GIS-Toolbox<span class="title-com">.com</span></h1>
         </div>
         <div class="header-center">
-            <button class="btn btn-primary btn-sm" id="btn-import">
+            <button class="btn btn-secondary btn-sm" id="btn-import">
                 <span class="btn-icon-text">📂</span><span>Import</span>
             </button>
             <button class="btn btn-secondary btn-sm" id="btn-fence" title="Draw a fence on the map — all imports will be filtered to this area">
@@ -217,8 +217,10 @@
                     </div>
                     <div class="panel-section-body" id="layer-list">
                         <div class="empty-state">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:48px;height:48px;margin:0 auto 12px;">
-                                <path d="M12 16v-4m0-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:48px;height:48px;margin:0 auto 12px;opacity:0.5;">
+                                <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                                <path d="M2 17l10 5 10-5"/>
+                                <path d="M2 12l10 5 10-5"/>
                             </svg>
                             <p>No layers loaded.<br>Import a file or use a tool to get started.</p>
                         </div>

@@ -603,8 +603,8 @@
     .splash-modal {
         width: 96vw !important;
         max-width: 96vw !important;
-        height: 96vh !important;
-        max-height: 96vh !important;
+        height: 94vh !important;
+        max-height: 94vh !important;
         border-radius: var(--radius) !important;
     }
     .splash-modal .modal-body {
