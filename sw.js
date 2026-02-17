@@ -2,7 +2,7 @@
 // GIS Toolbox — Service Worker
 // Bump CACHE_VERSION to push updates
 // ============================================
-const CACHE_VERSION = '1.16.13';
+const CACHE_VERSION = '1.17.1';
 const CACHE_NAME = `gis-toolbox-v${CACHE_VERSION}`;
 
 const APP_FILES = [
@@ -12,8 +12,11 @@ const APP_FILES = [
     './css/mobile.css',
     './js/core/session-store.js',
     './manifest.json',
-    './icon.svg',
-    './icon-maskable.svg',
+    './icons/favicon.png',
+    './icons/PWAicon.png',
+    './icons/TitleIcon.png',
+    './icons/MobileAddButton.png',
+    './icons/MobileMenuButton.png',
     './robots.txt',
     './sitemap.xml'
 ];
