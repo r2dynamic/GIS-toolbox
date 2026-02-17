@@ -9,30 +9,18 @@ export function showModal(title, contentHtml, options = {}) {
 
         const isMobile = window.innerWidth < 768;
 
-        if (isMobile && !options.forceModal) {
-            // Bottom sheet on mobile
-            overlay.innerHTML = `
-                <div class="bottom-sheet" style="pointer-events:auto;">
-                    <div class="bottom-sheet-handle"></div>
-                    <div class="bottom-sheet-header">
-                        <span>${title}</span>
-                        <button class="btn-icon close-modal" aria-label="Close">✕</button>
-                    </div>
-                    <div class="bottom-sheet-body">${contentHtml}</div>
-                    ${options.footer ? `<div class="modal-footer">${options.footer}</div>` : ''}
-                </div>`;
-        } else {
-            const width = options.width || '600px';
-            overlay.innerHTML = `
-                <div class="modal" style="width:${width}">
-                    <div class="modal-header">
-                        <span>${title}</span>
-                        <button class="btn-icon close-modal" aria-label="Close">✕</button>
-                    </div>
-                    <div class="modal-body">${contentHtml}</div>
-                    ${options.footer ? `<div class="modal-footer">${options.footer}</div>` : ''}
-                </div>`;
-        }
+        // On mobile: use standard modal (CSS styles it to 96vw centered with big close btn)
+        // No more bottom sheet — map stays visible behind semi-transparent overlay
+        const width = isMobile ? '96vw' : (options.width || '600px');
+        overlay.innerHTML = `
+            <div class="modal" style="width:${width}">
+                <div class="modal-header">
+                    <span>${title}</span>
+                    <button class="btn-icon close-modal" aria-label="Close">✕</button>
+                </div>
+                <div class="modal-body">${contentHtml}</div>
+                ${options.footer ? `<div class="modal-footer">${options.footer}</div>` : ''}
+            </div>`;
 
         document.body.appendChild(overlay);
 

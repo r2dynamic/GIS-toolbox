@@ -150,7 +150,7 @@
     <!-- Auto-save status indicator -->
     <div class="save-indicator" id="save-indicator"></div>
 
-    <!-- Mobile dropdown menu (hidden on desktop) -->
+    <!-- Mobile dropdown menu (hidden on desktop — legacy, kept for compat) -->
     <div class="mobile-dropdown-menu hidden" id="mobile-dropdown-menu">
         <button class="mobile-menu-item" data-action="import"><span>📂</span><span>Import Data</span></button>
         <button class="mobile-menu-item" data-action="photos"><span>📷</span><span>Photo Mapper</span></button>
@@ -160,6 +160,44 @@
         <div class="mobile-menu-sep"></div>
         <button class="mobile-menu-item" data-action="logs"><span>📋</span><span>Logs</span></button>
         <button class="mobile-menu-item" data-action="info"><span>ℹ️</span><span>Tool Guide</span></button>
+    </div>
+
+    <!-- ================================ -->
+    <!-- NEW MOBILE UI (hidden on desktop)-->
+    <!-- ================================ -->
+
+    <!-- Mobile title pill — upper left -->
+    <div class="mobile-title-pill" id="mobile-title-pill">
+        <span class="pill-logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="22" height="22"><defs><linearGradient id="mpg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e8b84a"/><stop offset="1" stop-color="#d4a24e"/></linearGradient></defs><circle cx="32" cy="32" r="28" fill="none" stroke="url(#mpg)" stroke-width="3"/><ellipse cx="32" cy="32" rx="14" ry="28" fill="none" stroke="url(#mpg)" stroke-width="2"/><line x1="4" y1="32" x2="60" y2="32" stroke="url(#mpg)" stroke-width="2"/><path d="M8 20h48M8 44h48" stroke="url(#mpg)" stroke-width="1.5" opacity=".6"/><circle cx="44" cy="16" r="8" fill="#d4a24e"/><path d="M44 10a6 6 0 0 1 6 6c0 4-6 10-6 10s-6-6-6-10a6 6 0 0 1 6-6z" fill="#e8b84a"/><circle cx="44" cy="16" r="2.5" fill="#0f1117"/></svg></span>
+        <span class="pill-text">GIS Toolbox</span>
+    </div>
+
+    <!-- Mobile FABs — upper right (nav/gear) + lower right (add/plus) -->
+    <button class="mobile-fab" id="mobile-fab-nav" title="Menu" aria-label="Navigation menu">⚙️</button>
+    <button class="mobile-fab" id="mobile-fab-add" title="Add" aria-label="Add layer">➕</button>
+
+    <!-- Mobile nav flyout menu (gear — upper right) -->
+    <div class="mobile-flyout" id="mobile-flyout-nav">
+        <button class="mobile-flyout-item" data-action="export"><span class="flyout-icon">💾</span><span class="flyout-label">Export</span></button>
+        <button class="mobile-flyout-item" data-action="widgets"><span class="flyout-icon">📊</span><span class="flyout-label">GIS Widgets</span></button>
+        <button class="mobile-flyout-item" data-action="tools"><span class="flyout-icon">🔧</span><span class="flyout-label">GIS Tools</span></button>
+        <div class="mobile-flyout-sep"></div>
+        <button class="mobile-flyout-item" data-action="layers"><span class="flyout-icon">🗺️</span><span class="flyout-label">Layers</span></button>
+        <button class="mobile-flyout-item" data-action="styling"><span class="flyout-icon">🎨</span><span class="flyout-label">Layer Styling</span></button>
+        <button class="mobile-flyout-item" data-action="datatools"><span class="flyout-icon">⚙️</span><span class="flyout-label">Data Tools</span></button>
+        <div class="mobile-flyout-sep"></div>
+        <button class="mobile-flyout-item" data-action="basemap"><span class="flyout-icon">🌍</span><span class="flyout-label">Basemap</span></button>
+        <button class="mobile-flyout-item" data-action="guide"><span class="flyout-icon">ℹ️</span><span class="flyout-label">Tool Guide</span></button>
+    </div>
+
+    <!-- Mobile add flyout menu (plus — lower right) -->
+    <div class="mobile-flyout" id="mobile-flyout-add">
+        <button class="mobile-flyout-item" data-action="import"><span class="flyout-icon">📂</span><span class="flyout-label">Import Layer</span></button>
+        <button class="mobile-flyout-item" data-action="arcgis"><span class="flyout-icon">🌐</span><span class="flyout-label">Add ArcGIS</span></button>
+        <button class="mobile-flyout-item" data-action="photos"><span class="flyout-icon">📷</span><span class="flyout-label">Add Photos Layer</span></button>
+        <button class="mobile-flyout-item" data-action="draw"><span class="flyout-icon">✏️</span><span class="flyout-label">Add Drawing Layer</span></button>
+        <div class="mobile-flyout-sep"></div>
+        <button class="mobile-flyout-item" data-action="location"><span class="flyout-icon">📍</span><span class="flyout-label">Current Location</span></button>
     </div>
 
     <!-- ================================ -->

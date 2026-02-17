@@ -440,6 +440,11 @@ function setupEventListeners() {
         });
     });
 
+    // ============================
+    // NEW MOBILE FLYOUT MENUS
+    // ============================
+    setupMobileFlyoutMenus();
+
     // Panel collapse
     document.getElementById('toggle-left-panel')?.addEventListener('click', () => {
         const panel = document.querySelector('.panel-left');
@@ -942,6 +947,357 @@ function renderDataPrepTools() {
                 </div>
             </div>
         </div>`;
+}
+
+// ============================
+// Mobile Flyout Menus (new mobile UI)
+// ============================
+function setupMobileFlyoutMenus() {
+    const fabNav = document.getElementById('mobile-fab-nav');
+    const fabAdd = document.getElementById('mobile-fab-add');
+    const flyoutNav = document.getElementById('mobile-flyout-nav');
+    const flyoutAdd = document.getElementById('mobile-flyout-add');
+
+    if (!fabNav || !fabAdd || !flyoutNav || !flyoutAdd) return;
+
+    function closeFlyouts() {
+        flyoutNav.classList.remove('open');
+        flyoutAdd.classList.remove('open');
+        fabNav.classList.remove('open');
+        fabAdd.classList.remove('open');
+        document.querySelector('.mobile-flyout-backdrop')?.remove();
+    }
+
+    function openFlyout(fab, flyout) {
+        const wasOpen = flyout.classList.contains('open');
+        closeFlyouts();
+        if (wasOpen) return;
+
+        flyout.classList.add('open');
+        fab.classList.add('open');
+
+        const backdrop = document.createElement('div');
+        backdrop.className = 'mobile-flyout-backdrop';
+        document.body.appendChild(backdrop);
+        backdrop.addEventListener('click', closeFlyouts, { once: true });
+    }
+
+    fabNav.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openFlyout(fabNav, flyoutNav);
+    });
+
+    fabAdd.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openFlyout(fabAdd, flyoutAdd);
+    });
+
+    // Nav menu (gear — upper right) actions
+    flyoutNav.addEventListener('click', (e) => {
+        const item = e.target.closest('.mobile-flyout-item');
+        if (!item) return;
+        const action = item.dataset.action;
+        closeFlyouts();
+        switch (action) {
+            case 'export': mobileShowExportModal(); break;
+            case 'widgets': mobileShowWidgetsModal(); break;
+            case 'tools': mobileShowToolsModal(); break;
+            case 'layers': mobileShowLayersModal(); break;
+            case 'styling': mobileShowStylingModal(); break;
+            case 'datatools': mobileShowDataToolsModal(); break;
+            case 'basemap': mobileShowBasemapModal(); break;
+            case 'guide': showToolInfo(); break;
+        }
+    });
+
+    // Add menu (plus — lower right) actions
+    flyoutAdd.addEventListener('click', (e) => {
+        const item = e.target.closest('.mobile-flyout-item');
+        if (!item) return;
+        const action = item.dataset.action;
+        closeFlyouts();
+        switch (action) {
+            case 'import': document.getElementById('btn-import')?.click(); break;
+            case 'arcgis': openArcGISImporter(); break;
+            case 'photos': openPhotoMapper(); break;
+            case 'draw': createDrawLayer(); break;
+            case 'location': mobileAddCurrentLocation(); break;
+        }
+    });
+}
+
+// ============================
+// Mobile Modal Helpers
+// ============================
+function mobileShowExportModal() {
+    const layer = getActiveLayer();
+    if (!layer) {
+        showToast('Import data first to export', 'warning');
+        return;
+    }
+    const formats = getAvailableFormats(layer);
+    const agolMode = getState().agolCompatMode;
+    const html = `
+        <label class="toggle mb-8">
+            <input type="checkbox" id="agol-toggle-mob" ${agolMode ? 'checked' : ''}>
+            <span class="toggle-track"></span>
+            <span>AGOL Compatible</span>
+        </label>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;">
+            ${formats.map(f =>
+                `<button class="btn btn-primary btn-sm" style="flex:1 1 calc(50% - 4px);min-height:44px;" onclick="window.app.doExport('${f.key}')">${f.label}</button>`
+            ).join('')}
+        </div>`;
+    showModal('Export — ' + layer.name, html, {
+        onMount: (overlay) => {
+            overlay.querySelector('#agol-toggle-mob')?.addEventListener('change', () => {
+                toggleAGOLCompat();
+            });
+        }
+    });
+}
+
+function mobileShowWidgetsModal() {
+    const html = `
+        <div style="display:flex;flex-direction:column;gap:8px;">
+            <button class="btn btn-secondary" style="min-height:48px;justify-content:flex-start;gap:12px;" onclick="window.app.openSpatialAnalyzer()">📊 Spatial Analyzer</button>
+            <button class="btn btn-secondary" style="min-height:48px;justify-content:flex-start;gap:12px;" onclick="window.app.openBulkUpdate()">✏️ Bulk Update</button>
+            <button class="btn btn-secondary" style="min-height:48px;justify-content:flex-start;gap:12px;" onclick="window.app.openProximityJoin()">📍 Proximity Join</button>
+        </div>`;
+    showModal('GIS Widgets', html);
+}
+
+function mobileShowToolsModal() {
+    const layers = getLayers();
+    const html = `
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+            ${layers.length >= 2 ? '<button class="btn btn-primary btn-sm" style="flex:1 1 100%;min-height:44px;" onclick="window.app.mergeLayers()">🔗 Merge Layers</button>' : ''}
+            <button class="btn btn-secondary btn-sm" style="flex:1 1 calc(50% - 3px);min-height:44px;" onclick="window.app.openDistanceTool()">📏 Distance</button>
+            <button class="btn btn-secondary btn-sm" style="flex:1 1 calc(50% - 3px);min-height:44px;" onclick="window.app.openBearingTool()">🧭 Bearing</button>
+            <button class="btn btn-secondary btn-sm" style="flex:1 1 calc(50% - 3px);min-height:44px;" onclick="window.app.openBuffer()">⭕ Buffer</button>
+            <button class="btn btn-secondary btn-sm" style="flex:1 1 calc(50% - 3px);min-height:44px;" onclick="window.app.openBboxClip()">✂️ BBox Clip</button>
+            <button class="btn btn-secondary btn-sm" style="flex:1 1 calc(50% - 3px);min-height:44px;" onclick="window.app.openClip()">🔲 Clip</button>
+            <button class="btn btn-secondary btn-sm" style="flex:1 1 calc(50% - 3px);min-height:44px;" onclick="window.app.openSimplify()">〰️ Simplify</button>
+            <button class="btn btn-secondary btn-sm" style="flex:1 1 calc(50% - 3px);min-height:44px;" onclick="window.app.openBezierSpline()">🌊 Spline</button>
+            <button class="btn btn-secondary btn-sm" style="flex:1 1 calc(50% - 3px);min-height:44px;" onclick="window.app.openPolygonSmooth()">🔵 Smooth</button>
+            <button class="btn btn-secondary btn-sm" style="flex:1 1 calc(50% - 3px);min-height:44px;" onclick="window.app.openUnion()">🔶 Union</button>
+            <button class="btn btn-secondary btn-sm" style="flex:1 1 calc(50% - 3px);min-height:44px;" onclick="window.app.openDissolve()">🫧 Dissolve</button>
+            <button class="btn btn-secondary btn-sm" style="flex:1 1 calc(50% - 3px);min-height:44px;" onclick="window.app.openCombine()">🔗 Combine</button>
+            <button class="btn btn-secondary btn-sm" style="flex:1 1 calc(50% - 3px);min-height:44px;" onclick="window.app.openKinks()">⚠ Kinks</button>
+            <button class="btn btn-secondary btn-sm" style="flex:1 1 calc(50% - 3px);min-height:44px;" onclick="window.app.openNearestNeighborAnalysis()">📊 NN Analysis</button>
+            <button class="btn btn-secondary btn-sm" style="flex:1 1 calc(50% - 3px);min-height:44px;" onclick="window.app.openCoordinatesModal()">📍 Coordinates</button>
+        </div>`;
+    showModal('GIS Tools', html);
+}
+
+function mobileShowLayersModal() {
+    const layers = getLayers();
+    const active = getActiveLayer();
+    if (layers.length === 0) {
+        showToast('No layers loaded yet', 'info');
+        return;
+    }
+    let html = `<div style="display:flex;flex-direction:column;gap:4px;">`;
+    html += layers.map((l, idx) => {
+        const isActive = l.id === active?.id;
+        const icon = l.type === 'spatial' ? '🗺️' : '📊';
+        const count = l.type === 'spatial'
+            ? `${l.geojson?.features?.length || 0} features`
+            : `${l.rows?.length || 0} rows`;
+        return `
+            <div class="layer-item ${isActive ? 'active' : ''}" style="border-radius:var(--radius-sm);border:1px solid var(--border);margin-bottom:2px;" onclick="window.app.setActiveLayer('${l.id}')">
+                <span class="layer-icon">${icon}</span>
+                <div class="layer-name-row">
+                    <div class="layer-name">${l.name}</div>
+                    <div class="layer-order-btns">
+                        <button title="Up" ${idx === 0 ? 'disabled' : ''} onclick="event.stopPropagation(); window.app.moveLayerUp('${l.id}')">▲</button>
+                        <button title="Down" ${idx === layers.length - 1 ? 'disabled' : ''} onclick="event.stopPropagation(); window.app.moveLayerDown('${l.id}')">▼</button>
+                    </div>
+                </div>
+                <div class="layer-bottom-row">
+                    <div class="layer-meta">${count} · ${l.schema?.fields?.length || 0} fields</div>
+                    <div class="layer-actions">
+                        <button class="btn-icon" title="Rename" onclick="event.stopPropagation(); window.app.renameLayer('${l.id}')">✏️</button>
+                        <button class="btn-icon" title="Toggle" onclick="event.stopPropagation(); window.app.toggleVisibility('${l.id}')">
+                            ${l.visible !== false ? '👁️' : '👁️‍🗨️'}
+                        </button>
+                        <button class="btn-icon" title="Zoom" onclick="event.stopPropagation(); window.app.zoomToLayer('${l.id}')">🔍</button>
+                        <button class="btn-icon" title="Remove" onclick="event.stopPropagation(); window.app.removeLayer('${l.id}')">🗑️</button>
+                    </div>
+                </div>
+            </div>`;
+    }).join('');
+    html += `</div>`;
+    showModal('Layers', html);
+}
+
+function mobileShowStylingModal() {
+    const layer = getActiveLayer();
+    if (!layer) {
+        showToast('Select a layer first', 'warning');
+        return;
+    }
+    if (layer.type !== 'spatial') {
+        showToast('Layer styling is only for spatial layers', 'info');
+        return;
+    }
+    const styleHtml = buildStylePanel(layer);
+    showModal('Layer Styling — ' + layer.name, styleHtml, {
+        onMount: (overlay) => {
+            bindStylePanel(layer);
+        }
+    });
+}
+
+function mobileShowDataToolsModal() {
+    const layer = getActiveLayer();
+    if (!layer) {
+        showToast('Import data first', 'warning');
+        return;
+    }
+    const html = `
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">
+            <button class="btn btn-secondary" style="flex:1 1 calc(50% - 4px);min-height:48px;" onclick="window.app.openSplitColumn()">Split Column</button>
+            <button class="btn btn-secondary" style="flex:1 1 calc(50% - 4px);min-height:48px;" onclick="window.app.openCombineColumns()">Combine</button>
+            <button class="btn btn-secondary" style="flex:1 1 calc(50% - 4px);min-height:48px;" onclick="window.app.openTemplateBuilder()">Template</button>
+            <button class="btn btn-secondary" style="flex:1 1 calc(50% - 4px);min-height:48px;" onclick="window.app.openReplaceClean()">Replace/Clean</button>
+            <button class="btn btn-secondary" style="flex:1 1 calc(50% - 4px);min-height:48px;" onclick="window.app.openTypeConvert()">Type Convert</button>
+            <button class="btn btn-secondary" style="flex:1 1 calc(50% - 4px);min-height:48px;" onclick="window.app.openFilterBuilder()">Filter</button>
+            <button class="btn btn-secondary" style="flex:1 1 calc(50% - 4px);min-height:48px;" onclick="window.app.openDeduplicate()">Dedup</button>
+            <button class="btn btn-secondary" style="flex:1 1 calc(50% - 4px);min-height:48px;" onclick="window.app.openJoinTool()">Join</button>
+            <button class="btn btn-secondary" style="flex:1 1 calc(50% - 4px);min-height:48px;" onclick="window.app.openValidation()">Validate</button>
+            <button class="btn btn-secondary" style="flex:1 1 calc(50% - 4px);min-height:48px;" onclick="window.app.addUID()">Add UID</button>
+        </div>`;
+    showModal('Data Tools — ' + layer.name, html);
+}
+
+function mobileShowBasemapModal() {
+    const basemapOptions = [
+        { value: 'osm', label: 'Street Map' },
+        { value: 'light', label: 'Light / Gray' },
+        { value: 'dark', label: 'Dark' },
+        { value: 'voyager', label: 'Voyager' },
+        { value: 'topo', label: 'Topographic' },
+        { value: 'satellite', label: 'Satellite' },
+        { value: 'hybrid', label: 'Hybrid' },
+        { value: 'none', label: 'No Basemap' }
+    ];
+    const currentBasemap = document.getElementById('basemap-select')?.value || 'voyager';
+    const html = `
+        <div style="display:flex;flex-direction:column;gap:6px;">
+            ${basemapOptions.map(o => `
+                <button class="btn ${o.value === currentBasemap ? 'btn-primary' : 'btn-secondary'}"
+                    style="min-height:48px;justify-content:flex-start;gap:12px;"
+                    data-basemap="${o.value}">
+                    🌍 ${o.label}
+                </button>
+            `).join('')}
+        </div>`;
+    showModal('Basemap', html, {
+        onMount: (overlay, close) => {
+            overlay.querySelectorAll('[data-basemap]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const val = btn.dataset.basemap;
+                    mapManager.setBasemap(val);
+                    const desktopSelect = document.getElementById('basemap-select');
+                    if (desktopSelect) desktopSelect.value = val;
+                    close(null);
+                    showToast(`Basemap: ${btn.textContent.trim()}`, 'success', { duration: 1500 });
+                });
+            });
+        }
+    });
+}
+
+// ============================
+// Mobile: Current Location
+// ============================
+let _mobileLocationLayerId = null;
+
+function mobileAddCurrentLocation() {
+    if (!navigator.geolocation) {
+        showToast('Geolocation not supported on this device', 'error');
+        return;
+    }
+
+    showToast('Getting location…', 'info', { duration: 3000 });
+
+    navigator.geolocation.getCurrentPosition(
+        (position) => {
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+            const accuracy = position.coords.accuracy;
+
+            // Check if we have an existing location layer
+            let layer = _mobileLocationLayerId ? getLayers().find(l => l.id === _mobileLocationLayerId) : null;
+
+            if (!layer) {
+                // Look for any existing draw layer
+                const drawLayers = getLayers().filter(l => l._isDrawLayer);
+                if (drawLayers.length > 0) {
+                    // Use the first existing draw layer
+                    layer = drawLayers[0];
+                    _mobileLocationLayerId = layer.id;
+                } else {
+                    // Create a new draw layer
+                    const newLayer = createSpatialDataset('My Locations', {
+                        type: 'FeatureCollection',
+                        features: []
+                    });
+                    newLayer._isDrawLayer = true;
+                    addLayer(newLayer);
+                    setActiveLayer(newLayer.id);
+                    _mobileLocationLayerId = newLayer.id;
+                    layer = newLayer;
+                    mapManager.addLayer(newLayer, 0);
+                }
+            }
+
+            // Add point feature
+            const timestamp = new Date().toISOString();
+            const feature = {
+                type: 'Feature',
+                geometry: {
+                    type: 'Point',
+                    coordinates: [lng, lat]
+                },
+                properties: {
+                    name: `Location ${(layer.geojson?.features?.length || 0) + 1}`,
+                    timestamp: timestamp,
+                    accuracy_m: Math.round(accuracy),
+                    latitude: lat.toFixed(6),
+                    longitude: lng.toFixed(6)
+                }
+            };
+
+            saveSnapshot(layer.id, 'Add current location', layer.geojson);
+            layer.geojson.features.push(feature);
+
+            import('./core/data-model.js').then(dm => {
+                layer.schema = dm.analyzeSchema(layer.geojson);
+                bus.emit('layer:updated', layer);
+                bus.emit('layers:changed', getLayers());
+                mapManager.addLayer(layer, getLayers().indexOf(layer));
+                refreshUI();
+            });
+
+            // Pan map to location
+            mapManager.map?.setView([lat, lng], Math.max(mapManager.map.getZoom(), 15));
+            showToast(`📍 Location added (±${Math.round(accuracy)}m)`, 'success');
+        },
+        (error) => {
+            let msg = 'Could not get location';
+            if (error.code === 1) msg = 'Location permission denied';
+            else if (error.code === 2) msg = 'Location unavailable';
+            else if (error.code === 3) msg = 'Location request timed out';
+            showToast(msg, 'error');
+        },
+        {
+            enableHighAccuracy: true,
+            timeout: 15000,
+            maximumAge: 0
+        }
+    );
 }
 
 // ============================
