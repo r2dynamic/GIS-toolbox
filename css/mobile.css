@@ -601,8 +601,8 @@
         z-index: 10000 !important;
     }
     .splash-modal {
-        width: 97vw !important;
-        max-width: 97vw !important;
+        width: 96vw !important;
+        max-width: 96vw !important;
         height: 96vh !important;
         max-height: 96vh !important;
         border-radius: var(--radius) !important;
@@ -616,7 +616,7 @@
     /* ————— DRAW TOOLBAR: mobile optimized ————— */
     .draw-toolbar {
         top: auto;
-        bottom: calc(80px + env(safe-area-inset-bottom, 0));
+        bottom: calc(50px + env(safe-area-inset-bottom, 0));
         left: 12px;
         right: 72px;
         transform: none;

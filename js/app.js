@@ -4120,7 +4120,8 @@ function showToolInfo() {
             tools: [
                 ['GIS Toolbox', 'A modern web app for working with geospatial data.'],
                 ['How it Works', 'Client-side, no backend server processing. All work is done in the browser, no need to download/ install any software.'],
-                ['Tools', 'Most tools use Turf.js, a modular geospatial engine written in JavaScript']
+                ['Tools', 'Most tools use Turf.js, a modular geospatial engine written in JavaScript'],
+                ['Limitations', 'Large datasets may cause browser performance issues. Try using the "Import Fence" tool to load a smaller area.']
                 
             ]
         },
@@ -4251,7 +4252,7 @@ function showToolInfo() {
     const isMobile = window.innerWidth < 768;
     const mobileBanner = `<div class="splash-mobile-notice">📱 Mobile site still under development — for a better experience use a larger screen</div>`;
     const splashWidth = isMobile ? '99vw' : '560px';
-    showModal('<div style="display:inline-flex;align-items:center;gap:8px;"><img src="icons/TitleIcon.png" alt="" width="36" height="36" style="border-radius:4px;flex-shrink:0;"><span style="font-size:32px;font-weight:700;line-height:1;">GIS-Toolbox<span style="font-size:0.65em;font-weight:400;opacity:0.7;">.com</span></span></div> <span style="font-size:9px;font-weight:400;opacity:0.7;"> by Ryan Romney</span>', `${mobileBanner}<div style="overflow-y:auto;flex:1;">${html}</div>`, {
+    showModal('<div style="display:inline-flex;align-items:baseline;gap:8px;"><img src="icons/TitleIcon.png" alt="" width="36" height="36" style="border-radius:4px;flex-shrink:0;align-self:center;"><span style="font-size:32px;font-weight:700;line-height:1;">GIS-Toolbox<span style="font-size:0.65em;font-weight:400;opacity:0.7;">.com</span></span><span style="font-size:9px;font-weight:400;opacity:0.7;white-space:nowrap;">by Ryan Romney</span></div>', `${mobileBanner}<div style="overflow-y:auto;flex:1;">${html}</div>`, {
         width: splashWidth,
         onMount: (overlay) => {
             if (isMobile) {
