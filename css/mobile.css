@@ -629,7 +629,7 @@
     /* ————— COORD SEARCH on mobile — move to bottom-left ————— */
     .coord-search-control {
         position: fixed !important;
-        bottom: calc(70px + env(safe-area-inset-bottom, 0px)) !important;
+        bottom: calc(30px + env(safe-area-inset-bottom, 0px)) !important;
         left: 10px !important;
         top: auto !important;
         z-index: 1000;
