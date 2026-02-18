@@ -453,27 +453,35 @@
         width: 12px;
     }
 
-    /* ————— MAP INTERACTION BANNER: below title pill ————— */
+    /* ————— MAP INTERACTION BANNER: bottom-left above nav ————— */
     .map-interaction-banner {
-        top: calc(56px + env(safe-area-inset-top, 0)) !important;
+        top: unset !important;
+        bottom: calc(25px + env(safe-area-inset-bottom, 0px)) !important;
         left: 8px !important;
-        right: 8px !important;
+        right: auto !important;
         transform: none !important;
-        max-width: unset;
+        max-width: 75vw;
         white-space: normal;
-        font-size: 12px;
-        padding: 8px 12px;
-        gap: 8px;
-        z-index: 900 !important;
+        font-size: 11px;
+        padding: 6px 10px;
+        gap: 6px;
+        z-index: 999 !important;
     }
     .map-interaction-banner .interaction-cancel {
-        min-height: 28px;
-        border-radius: 20px;
-        padding: 4px 14px;
-        font-size: 12px;
+        min-height: 24px;
+        min-width: 24px;
+        border-radius: 12px;
+        padding: 0 8px;
+        font-size: 0;
         display: flex;
         align-items: center;
         justify-content: center;
+        flex-shrink: 0;
+    }
+    .map-interaction-banner .interaction-cancel::before {
+        content: '\2715';
+        font-size: 13px;
+        line-height: 1;
     }
     .map-interaction-banner span:last-child {
         display: none; /* hide '(Esc to cancel)' on mobile */
@@ -482,20 +490,20 @@
     /* ————— TOAST: anchored bottom-left above nav ————— */
     .toast-container {
         top: unset;
-        bottom: calc(70px + env(safe-area-inset-bottom, 0px));
+        bottom: calc(58px + env(safe-area-inset-bottom, 0px));
         left: 8px;
         right: auto;
-        max-width: 85vw;
+        max-width: 72vw;
         flex-direction: column-reverse;
     }
     .toast {
         max-width: unset;
-        padding: 10px 12px;
-        font-size: 13px;
-        gap: 8px;
+        padding: 6px 10px;
+        font-size: 11px;
+        gap: 6px;
     }
-    .toast-details { font-size: 11px; }
-    .toast-details-body { font-size: 10px; padding: 6px; }
+    .toast-details { font-size: 10px; }
+    .toast-details-body { font-size: 9px; padding: 4px; }
 
     /* ————— LOGS PANEL ————— */
     .logs-panel {
