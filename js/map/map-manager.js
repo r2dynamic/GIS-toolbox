@@ -903,6 +903,8 @@ class MapManager {
         // Clear any existing fence first
         this.clearImportFence();
 
+        const isMobile = window.innerWidth < 768 || 'ontouchstart' in window;
+
         return new Promise((resolve) => {
             this._cancelInteraction();
 
@@ -910,21 +912,24 @@ class MapManager {
             container.style.cursor = 'crosshair';
 
             const banner = this._showInteractionBanner(
-                'Click and drag to draw your import fence. Only features inside this area will be imported.',
+                isMobile
+                    ? 'Tap and drag to draw your import fence. Only features inside this area will be imported.'
+                    : 'Click and drag to draw your import fence. Only features inside this area will be imported.',
                 () => { cleanup(); resolve(null); }
             );
 
             let startLatLng = null;
             let rect = null;
 
-            const onMouseDown = (e) => {
-                startLatLng = e.latlng;
+            // --- Shared logic ---
+            const beginDraw = (latlng) => {
+                startLatLng = latlng;
                 this.map.dragging.disable();
             };
 
-            const onMouseMove = (e) => {
+            const updateDraw = (latlng) => {
                 if (!startLatLng) return;
-                const bounds = L.latLngBounds(startLatLng, e.latlng);
+                const bounds = L.latLngBounds(startLatLng, latlng);
                 if (rect) {
                     rect.setBounds(bounds);
                 } else {
@@ -935,15 +940,14 @@ class MapManager {
                 }
             };
 
-            const onMouseUp = (e) => {
+            const endDraw = (latlng) => {
                 if (!startLatLng) return;
                 this.map.dragging.enable();
-                const bounds = L.latLngBounds(startLatLng, e.latlng);
+                const bounds = L.latLngBounds(startLatLng, latlng);
 
                 // Store the persistent fence
                 if (rect) {
                     rect.setStyle({ dashArray: '10,6', weight: 2.5 });
-                    // Add a tooltip
                     rect.bindTooltip('Import Fence — only features in this area will be imported', {
                         permanent: false, direction: 'center', className: 'fence-tooltip'
                     });
@@ -955,6 +959,37 @@ class MapManager {
                     bounds.getWest(), bounds.getSouth(),
                     bounds.getEast(), bounds.getNorth()
                 ]);
+            };
+
+            // --- Mouse handlers ---
+            const onMouseDown = (e) => beginDraw(e.latlng);
+            const onMouseMove = (e) => updateDraw(e.latlng);
+            const onMouseUp = (e) => endDraw(e.latlng);
+
+            // --- Touch handlers (on raw container) ---
+            const touchToLatLng = (touch) => {
+                const rect2 = container.getBoundingClientRect();
+                const point = L.point(touch.clientX - rect2.left, touch.clientY - rect2.top);
+                return this.map.containerPointToLatLng(point);
+            };
+
+            const onTouchStart = (e) => {
+                if (e.touches.length !== 1) return;
+                e.preventDefault();
+                beginDraw(touchToLatLng(e.touches[0]));
+            };
+
+            const onTouchMove = (e) => {
+                if (!startLatLng || e.touches.length !== 1) return;
+                e.preventDefault();
+                updateDraw(touchToLatLng(e.touches[0]));
+            };
+
+            const onTouchEnd = (e) => {
+                if (!startLatLng) return;
+                e.preventDefault();
+                const touch = e.changedTouches[0];
+                endDraw(touchToLatLng(touch));
             };
 
             const onKeyDown = (e) => {
@@ -971,6 +1006,9 @@ class MapManager {
                 this.map.off('mousedown', onMouseDown);
                 this.map.off('mousemove', onMouseMove);
                 this.map.off('mouseup', onMouseUp);
+                container.removeEventListener('touchstart', onTouchStart);
+                container.removeEventListener('touchmove', onTouchMove);
+                container.removeEventListener('touchend', onTouchEnd);
                 document.removeEventListener('keydown', onKeyDown);
                 if (removeRect && rect) {
                     this.map.removeLayer(rect);
@@ -980,9 +1018,17 @@ class MapManager {
             };
 
             this._interactionCleanup = cleanup;
+
+            // Bind mouse events
             this.map.on('mousedown', onMouseDown);
             this.map.on('mousemove', onMouseMove);
             this.map.on('mouseup', onMouseUp);
+
+            // Bind touch events on the container element
+            container.addEventListener('touchstart', onTouchStart, { passive: false });
+            container.addEventListener('touchmove', onTouchMove, { passive: false });
+            container.addEventListener('touchend', onTouchEnd, { passive: false });
+
             document.addEventListener('keydown', onKeyDown);
         });
     }

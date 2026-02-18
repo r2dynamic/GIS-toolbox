@@ -828,8 +828,12 @@ function buildStylePanel(layer) {
         </div>`;
 }
 
-function bindStylePanel(layer) {
-    const applyBtn = document.getElementById('sty-apply');
+function bindStylePanel(layer, root = document) {
+    const $ = (sel) => root.querySelector(sel);
+    const $$ = (sel) => root.querySelectorAll(sel);
+    const byId = (id) => root.getElementById ? root.getElementById(id) : root.querySelector(`#${id}`);
+
+    const applyBtn = byId('sty-apply');
     if (!applyBtn) return;
 
     const geomTypes = _detectGeomTypes(layer);
@@ -837,8 +841,8 @@ function bindStylePanel(layer) {
 
     // Wire live value previews for all range sliders in the style panel
     const wireRange = (inputId, valId, fmt) => {
-        const input = document.getElementById(inputId);
-        const valEl = document.getElementById(valId);
+        const input = byId(inputId);
+        const valEl = byId(valId);
         if (input && valEl) {
             input.addEventListener('input', () => { valEl.textContent = fmt(input.value); });
         }
@@ -856,9 +860,9 @@ function bindStylePanel(layer) {
             wireRange(`${prefix}-point-size`, `${prefix}-point-size-val`, idFmt);
 
             // Symbol button selection
-            document.querySelectorAll(`#${prefix}-point-symbol .style-symbol-btn`).forEach(btn => {
+            $$(`#${prefix}-point-symbol .style-symbol-btn`).forEach(btn => {
                 btn.addEventListener('click', () => {
-                    document.querySelectorAll(`#${prefix}-point-symbol .style-symbol-btn`).forEach(b => b.classList.remove('active'));
+                    $$(`#${prefix}-point-symbol .style-symbol-btn`).forEach(b => b.classList.remove('active'));
                     btn.classList.add('active');
                 });
             });
@@ -870,9 +874,9 @@ function bindStylePanel(layer) {
         wireRange('sty-point-size', 'sty-point-size-val', idFmt);
 
         // Symbol button selection
-        document.querySelectorAll('#sty-point-symbol .style-symbol-btn').forEach(btn => {
+        $$('#sty-point-symbol .style-symbol-btn').forEach(btn => {
             btn.addEventListener('click', () => {
-                document.querySelectorAll('#sty-point-symbol .style-symbol-btn').forEach(b => b.classList.remove('active'));
+                $$('#sty-point-symbol .style-symbol-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
             });
         });
@@ -880,7 +884,7 @@ function bindStylePanel(layer) {
 
     // Helper to read style values from a prefix group
     const readSection = (prefix) => {
-        const v = (id, def) => document.getElementById(`${prefix}-${id}`)?.value ?? def;
+        const v = (id, def) => byId(`${prefix}-${id}`)?.value ?? def;
         return {
             strokeColor: v('stroke-color', '#2563eb'),
             fillColor: v('fill-color', null) || v('stroke-color', '#2563eb'),
@@ -888,7 +892,7 @@ function bindStylePanel(layer) {
             strokeOpacity: parseFloat(v('stroke-opacity', 0.8)),
             fillOpacity: parseFloat(v('fill-opacity', 0.3)),
             pointSize: parseInt(v('point-size', 6)),
-            pointSymbol: document.querySelector(`#${prefix}-point-symbol .style-symbol-btn.active`)?.dataset.symbol || 'circle'
+            pointSymbol: $(`#${prefix}-point-symbol .style-symbol-btn.active`)?.dataset.symbol || 'circle'
         };
     };
 
@@ -1061,6 +1065,7 @@ function setupMobileFlyoutMenus() {
             case 'widgets': mobileShowWidgetsModal(); break;
             case 'tools': mobileShowToolsModal(); break;
             case 'layers': mobileShowLayersModal(); break;
+            case 'fields': mobileShowFieldsModal(); break;
             case 'styling': mobileShowStylingModal(); break;
             case 'datatools': mobileShowDataToolsModal(); break;
             case 'basemap': mobileShowBasemapModal(); break;
@@ -1312,6 +1317,60 @@ function mobileShowLayersModal() {
     });
 }
 
+function mobileShowFieldsModal() {
+    const layer = getActiveLayer();
+    if (!layer) {
+        showToast('Select a layer first', 'warning');
+        return;
+    }
+
+    const fields = layer.schema?.fields || [];
+    const fieldRows = fields.map(f => `
+        <div class="field-item" data-field="${f.name}" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--border);">
+            <input type="checkbox" class="mob-field-chk" data-name="${f.name}" ${f.selected ? 'checked' : ''}>
+            <span class="field-name" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${f.outputName || f.name}</span>
+            <span class="field-type" style="font-size:10px;color:var(--text-muted);">${f.type}</span>
+        </div>
+    `).join('');
+
+    const html = `
+        <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
+            <button class="btn btn-sm btn-secondary" id="mob-fields-all">Select All</button>
+            <button class="btn btn-sm btn-secondary" id="mob-fields-none">Select None</button>
+            <button class="btn btn-sm btn-primary" id="mob-fields-add">+ Add Field</button>
+        </div>
+        <div style="max-height:55vh;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);">
+            ${fieldRows || '<div style="padding:12px;color:var(--text-muted);font-size:13px;">No fields in this layer.</div>'}
+        </div>
+    `;
+
+    showModal('Fields — ' + layer.name, html, {
+        width: '400px',
+        onMount: (overlay, close) => {
+            // Checkbox toggles
+            overlay.querySelectorAll('.mob-field-chk').forEach(chk => {
+                chk.addEventListener('change', () => {
+                    toggleField(chk.dataset.name, chk.checked);
+                });
+            });
+            // Select All / None
+            overlay.querySelector('#mob-fields-all')?.addEventListener('click', () => {
+                selectAllFields(true);
+                overlay.querySelectorAll('.mob-field-chk').forEach(c => c.checked = true);
+            });
+            overlay.querySelector('#mob-fields-none')?.addEventListener('click', () => {
+                selectAllFields(false);
+                overlay.querySelectorAll('.mob-field-chk').forEach(c => c.checked = false);
+            });
+            // Add Field — close modal and open addField dialog
+            overlay.querySelector('#mob-fields-add')?.addEventListener('click', () => {
+                close();
+                addField();
+            });
+        }
+    });
+}
+
 function mobileShowStylingModal() {
     const layer = getActiveLayer();
     if (!layer) {
@@ -1325,7 +1384,7 @@ function mobileShowStylingModal() {
     const styleHtml = buildStylePanel(layer);
     showModal('Layer Styling — ' + layer.name, styleHtml, {
         onMount: (overlay) => {
-            bindStylePanel(layer);
+            bindStylePanel(layer, overlay);
         }
     });
 }
