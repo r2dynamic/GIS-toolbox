@@ -8,10 +8,10 @@ import logger from '../core/logger.js';
 import mapManager from './map-manager.js';
 
 const DRAW_STYLE = {
-    color: '#f59e0b',
+    color: '#01bcdd',
     weight: 3,
     opacity: 0.9,
-    fillColor: '#f59e0b',
+    fillColor: '#01bcdd',
     fillOpacity: 0.3,
     dashArray: '6 4'
 };
@@ -19,7 +19,7 @@ const DRAW_STYLE = {
 const VERTEX_STYLE = {
     radius: 5,
     fillColor: '#fff',
-    color: '#f59e0b',
+    color: '#01bcdd',
     weight: 2,
     opacity: 1,
     fillOpacity: 1
