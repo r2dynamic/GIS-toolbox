@@ -2404,9 +2404,9 @@ async function openBuffer() {
     const selNote = work.isSelection ? `<div class="info-box text-xs">Operating on <strong>${work.count}</strong> selected features (of ${work.totalCount}).</div>` : '';
     const html = `
         <div class="form-group"><label>Buffer distance</label>
-            <input type="number" id="buf-dist" value="1" min="0.001" step="0.1"></div>
+            <input type="number" id="buf-dist" value="100" min="0.001" step="1"></div>
         <div class="form-group"><label>Units</label>
-            <select id="buf-units"><option value="kilometers">Kilometers</option><option value="miles">Miles</option><option value="meters">Meters</option></select></div>
+            <select id="buf-units"><option value="feet" selected>Feet</option><option value="meters">Meters</option><option value="miles">Miles</option><option value="kilometers">Kilometers</option></select></div>
         ${work.count > 5000 ? '<div class="warning-box">Large dataset — this may be slow.</div>' : ''}
         ${selNote}`;
 
@@ -2652,13 +2652,26 @@ function addResultLayer(dataset) {
     refreshUI();
 }
 
+// Helper: convert kilometers to the user-selected unit
+function convertKm(km, toUnit) {
+    switch (toUnit) {
+        case 'feet':  return km * 3280.84;
+        case 'meters': return km * 1000;
+        case 'miles':  return km * 0.621371;
+        default:       return km;
+    }
+}
+
+// Standard unit select options HTML (feet default)
+const UNIT_OPTIONS_HTML = '<option value="feet" selected>Feet</option><option value="meters">Meters</option><option value="miles">Miles</option><option value="kilometers">Kilometers</option>';
+
 // --- Distance ---
 async function openDistanceTool() {
     if (typeof turf === 'undefined') return showToast('Turf.js not loaded yet', 'warning');
     const html = `
         <p>Click two points on the map to measure the straight-line distance between them.</p>
         <div class="form-group"><label>Units</label>
-            <select id="dist-units"><option value="kilometers">Kilometers</option><option value="miles">Miles</option><option value="meters">Meters</option><option value="feet">Feet</option></select>
+            <select id="dist-units"><option value="feet" selected>Feet</option><option value="meters">Meters</option><option value="miles">Miles</option><option value="kilometers">Kilometers</option></select>
         </div>`;
     showModal('Measure Distance', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Pick Points on Map</button>',
@@ -2712,11 +2725,11 @@ async function openDestinationTool() {
     const html = `
         <p>Click a starting point, then enter a distance and bearing to find the destination point.</p>
         <div class="form-group"><label>Distance</label>
-            <input type="number" id="dest-dist" value="1" min="0.001" step="0.1"></div>
+            <input type="number" id="dest-dist" value="100" min="0.001" step="1"></div>
         <div class="form-group"><label>Bearing (degrees, 0=North, 90=East)</label>
             <input type="number" id="dest-bearing" value="0" min="-180" max="360" step="1"></div>
         <div class="form-group"><label>Units</label>
-            <select id="dest-units"><option value="kilometers">Kilometers</option><option value="miles">Miles</option><option value="meters">Meters</option></select></div>`;
+            <select id="dest-units"><option value="feet" selected>Feet</option><option value="meters">Meters</option><option value="miles">Miles</option><option value="kilometers">Kilometers</option></select></div>`;
     showModal('Find Destination Point', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Pick Origin on Map</button>',
         onMount: (overlay, close) => {
@@ -2747,9 +2760,9 @@ async function openAlongTool() {
     const html = `
         <p>Get a point at a specified distance along a line feature.</p>
         <div class="form-group"><label>Distance along line</label>
-            <input type="number" id="along-dist" value="1" min="0" step="0.1"></div>
+            <input type="number" id="along-dist" value="100" min="0" step="1"></div>
         <div class="form-group"><label>Units</label>
-            <select id="along-units"><option value="kilometers">Kilometers</option><option value="miles">Miles</option><option value="meters">Meters</option></select></div>
+            <select id="along-units"><option value="feet" selected>Feet</option><option value="meters">Meters</option><option value="miles">Miles</option><option value="kilometers">Kilometers</option></select></div>
         ${selNote}
         <div class="info-box text-xs">Uses the first LineString feature${work.isSelection ? ' in the selection' : ' in the active layer'}.</div>`;
     showModal('Point Along Line', html, {
@@ -2785,7 +2798,7 @@ async function openPointToLineDistanceTool() {
         <div class="form-group"><label>Line layer</label>
             <select id="ptl-layer">${lineLayers}</select></div>
         <div class="form-group"><label>Units</label>
-            <select id="ptl-units"><option value="kilometers">Kilometers</option><option value="miles">Miles</option><option value="meters">Meters</option></select></div>`;
+            <select id="ptl-units"><option value="feet" selected>Feet</option><option value="meters">Meters</option><option value="miles">Miles</option><option value="kilometers">Kilometers</option></select></div>`;
     showModal('Point to Line Distance', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Pick Point on Map</button>',
         onMount: (overlay, close) => {
@@ -2916,9 +2929,9 @@ async function openLineOffset() {
     const html = `
         <p>Create a parallel copy of line features, offset by the specified distance. Positive = right side, negative = left side.</p>
         <div class="form-group"><label>Offset distance</label>
-            <input type="number" id="offset-dist" value="0.5" step="0.1"></div>
+            <input type="number" id="offset-dist" value="10" step="1"></div>
         <div class="form-group"><label>Units</label>
-            <select id="offset-units"><option value="kilometers">Kilometers</option><option value="miles">Miles</option><option value="meters">Meters</option></select></div>
+            <select id="offset-units"><option value="feet" selected>Feet</option><option value="meters">Meters</option><option value="miles">Miles</option><option value="kilometers">Kilometers</option></select></div>
         ${selNote}`;
     showModal('Line Offset', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Offset</button>',
@@ -2948,11 +2961,11 @@ async function openLineSliceAlong() {
     const html = `
         <p>Extract a section of a line between two distances measured from the start.</p>
         <div class="form-group"><label>Start distance</label>
-            <input type="number" id="slice-start" value="0" min="0" step="0.1"></div>
+            <input type="number" id="slice-start" value="0" min="0" step="1"></div>
         <div class="form-group"><label>Stop distance</label>
-            <input type="number" id="slice-stop" value="1" min="0" step="0.1"></div>
+            <input type="number" id="slice-stop" value="100" min="0" step="1"></div>
         <div class="form-group"><label>Units</label>
-            <select id="slice-units"><option value="kilometers">Kilometers</option><option value="miles">Miles</option><option value="meters">Meters</option></select></div>`;
+            <select id="slice-units"><option value="feet" selected>Feet</option><option value="meters">Meters</option><option value="miles">Miles</option><option value="kilometers">Kilometers</option></select></div>`;
     showModal('Line Slice Along', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Slice</button>',
         onMount: (overlay, close) => {
@@ -3170,13 +3183,13 @@ async function openSector() {
     const html = `
         <p>Create a pie-slice shaped polygon from a center point, radius, and two compass bearings.</p>
         <div class="form-group"><label>Radius</label>
-            <input type="number" id="sector-radius" value="1" min="0.001" step="0.1"></div>
+            <input type="number" id="sector-radius" value="100" min="0.001" step="1"></div>
         <div class="form-group"><label>Start bearing (degrees, 0=North)</label>
             <input type="number" id="sector-b1" value="0" min="-180" max="360" step="1"></div>
         <div class="form-group"><label>End bearing (degrees)</label>
             <input type="number" id="sector-b2" value="90" min="-180" max="360" step="1"></div>
         <div class="form-group"><label>Units</label>
-            <select id="sector-units"><option value="kilometers">Kilometers</option><option value="miles">Miles</option><option value="meters">Meters</option></select></div>`;
+            <select id="sector-units"><option value="feet" selected>Feet</option><option value="meters">Meters</option><option value="miles">Miles</option><option value="kilometers">Kilometers</option></select></div>`;
     showModal('Create Sector', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Pick Center on Map</button>',
         onMount: (overlay, close) => {
@@ -3213,13 +3226,16 @@ async function openNearestPoint() {
     const html = `
         <p>Click a location on the map to find the closest feature in a point layer.</p>
         <div class="form-group"><label>Point layer to search</label>
-            <select id="np-layer">${ptLayers}</select></div>`;
+            <select id="np-layer">${ptLayers}</select></div>
+        <div class="form-group"><label>Units</label>
+            <select id="np-units">${UNIT_OPTIONS_HTML}</select></div>`;
     showModal('Nearest Point', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Pick Location on Map</button>',
         onMount: (overlay, close) => {
             overlay.querySelector('.cancel-btn').onclick = () => close();
             overlay.querySelector('.apply-btn').onclick = async () => {
                 const layerId = overlay.querySelector('#np-layer').value;
+                const units = overlay.querySelector('#np-units').value;
                 const ptLayer = getLayers().find(l => l.id === layerId);
                 close();
                 if (!ptLayer) return;
@@ -3229,9 +3245,10 @@ async function openNearestPoint() {
                     const nearest = gisTools.nearestPoint(turf.point(target), ptLayer);
                     const line = turf.lineString([target, nearest.geometry.coordinates]);
                     mapManager.showTempFeature({type:'FeatureCollection',features:[nearest, line]}, 15000);
-                    const dist = nearest.properties.distanceToPoint;
+                    const distKm = nearest.properties.distanceToPoint;
+                    const dist = convertKm(distKm, units);
                     const name = nearest.properties.name || nearest.properties.NAME || `Feature ${nearest.properties.featureIndex}`;
-                    showToast(`Nearest: "${name}" (${dist?.toFixed(4) || '?'} km away)`, 'success', { duration: 10000 });
+                    showToast(`Nearest: "${name}" (${dist?.toFixed(2) || '?'} ${units} away)`, 'success', { duration: 10000 });
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'NearestPoint'));
                 }
@@ -3249,13 +3266,16 @@ async function openNearestPointOnLine() {
     const html = `
         <p>Click a point on the map to find the closest spot on a line (snaps to the line).</p>
         <div class="form-group"><label>Line layer</label>
-            <select id="npol-layer">${lineLayers}</select></div>`;
+            <select id="npol-layer">${lineLayers}</select></div>
+        <div class="form-group"><label>Units</label>
+            <select id="npol-units">${UNIT_OPTIONS_HTML}</select></div>`;
     showModal('Nearest Point on Line', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Pick Point on Map</button>',
         onMount: (overlay, close) => {
             overlay.querySelector('.cancel-btn').onclick = () => close();
             overlay.querySelector('.apply-btn').onclick = async () => {
                 const layerId = overlay.querySelector('#npol-layer').value;
+                const units = overlay.querySelector('#npol-units').value;
                 const lineLayer = getLayers().find(l => l.id === layerId);
                 close();
                 if (!lineLayer) return;
@@ -3267,8 +3287,9 @@ async function openNearestPointOnLine() {
                     const snap = gisTools.nearestPointOnLine(line, turf.point(pt));
                     const connector = turf.lineString([pt, snap.geometry.coordinates]);
                     mapManager.showTempFeature({type:'FeatureCollection',features:[snap, connector]}, 15000);
-                    const dist = snap.properties.dist;
-                    showToast(`Snapped to line at ${dist?.toFixed(4) || '?'} km`, 'success', { duration: 10000 });
+                    const distKm = snap.properties.dist;
+                    const dist = convertKm(distKm, units);
+                    showToast(`Snapped to line at ${dist?.toFixed(2) || '?'} ${units}`, 'success', { duration: 10000 });
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'NearestPointOnLine'));
                 }
@@ -3289,7 +3310,9 @@ async function openNearestPointToLine() {
         <div class="form-group"><label>Point layer</label>
             <select id="nptl-pts">${ptLayers}</select></div>
         <div class="form-group"><label>Line layer</label>
-            <select id="nptl-line">${lineLayers}</select></div>`;
+            <select id="nptl-line">${lineLayers}</select></div>
+        <div class="form-group"><label>Units</label>
+            <select id="nptl-units">${UNIT_OPTIONS_HTML}</select></div>`;
     showModal('Nearest Point to Line', html, {
         footer: '<button class="btn btn-secondary cancel-btn">Cancel</button><button class="btn btn-primary apply-btn">Find</button>',
         onMount: (overlay, close) => {
@@ -3297,6 +3320,7 @@ async function openNearestPointToLine() {
             overlay.querySelector('.apply-btn').onclick = () => {
                 const ptsLayer = getLayers().find(l => l.id === overlay.querySelector('#nptl-pts').value);
                 const lineLayer = getLayers().find(l => l.id === overlay.querySelector('#nptl-line').value);
+                const units = overlay.querySelector('#nptl-units').value;
                 close();
                 if (!ptsLayer || !lineLayer) return;
                 const line = lineLayer.geojson.features.find(f => f.geometry?.type === 'LineString');
@@ -3305,7 +3329,9 @@ async function openNearestPointToLine() {
                     const nearest = gisTools.nearestPointToLine(ptsLayer.geojson, line);
                     mapManager.showTempFeature(nearest, 15000);
                     const name = nearest.properties?.name || nearest.properties?.NAME || 'Unnamed';
-                    showToast(`Nearest to line: "${name}" (${nearest.properties?.dist?.toFixed(4) || '?'} km)`, 'success', { duration: 10000 });
+                    const distKm = nearest.properties?.dist;
+                    const dist = convertKm(distKm, units);
+                    showToast(`Nearest to line: "${name}" (${dist?.toFixed(2) || '?'} ${units})`, 'success', { duration: 10000 });
                 } catch (e) {
                     showErrorToast(handleError(e, 'GISTools', 'NearestPointToLine'));
                 }

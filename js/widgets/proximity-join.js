@@ -16,10 +16,10 @@ import logger from '../core/logger.js';
 
 /* ── Unit conversion helpers ── */
 const UNIT_LABELS = [
-    { value: 'meters',     label: 'Meters',    abbr: 'm'  },
     { value: 'feet',       label: 'Feet',       abbr: 'ft' },
-    { value: 'kilometers', label: 'Kilometers', abbr: 'km' },
+    { value: 'meters',     label: 'Meters',    abbr: 'm'  },
     { value: 'miles',      label: 'Miles',      abbr: 'mi' },
+    { value: 'kilometers', label: 'Kilometers', abbr: 'km' },
 ];
 
 /** Convert meters to the requested unit */

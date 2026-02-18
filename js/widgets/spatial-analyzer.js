@@ -941,14 +941,25 @@ export class SpatialAnalyzerWidget extends WidgetBase {
         }
 
         if (hasLines) {
-            stats.totalLength = totalLengthKm < 1
-                ? `${Math.round(totalLengthKm * 1000).toLocaleString()} m`
-                : `${totalLengthKm.toFixed(2)} km`;
+            const totalLengthFt = totalLengthKm * 3280.84;
+            if (totalLengthFt < 5280) {
+                stats.totalLength = `${Math.round(totalLengthFt).toLocaleString()} ft`;
+            } else {
+                const totalLengthMi = totalLengthFt / 5280;
+                stats.totalLength = `${totalLengthMi.toFixed(2)} mi`;
+            }
         }
         if (hasPolygons) {
-            stats.totalArea = totalAreaSqKm < 1
-                ? `${Math.round(totalAreaSqKm * 1e6).toLocaleString()} m\u00b2`
-                : `${totalAreaSqKm.toFixed(3)} km\u00b2`;
+            const totalAreaSqFt = totalAreaSqKm * 1.076e7;
+            const totalAreaAcres = totalAreaSqFt / 43560;
+            if (totalAreaAcres < 1) {
+                stats.totalArea = `${Math.round(totalAreaSqFt).toLocaleString()} ft\u00b2`;
+            } else if (totalAreaAcres < 640) {
+                stats.totalArea = `${totalAreaAcres.toFixed(2)} acres`;
+            } else {
+                const totalAreaSqMi = totalAreaAcres / 640;
+                stats.totalArea = `${totalAreaSqMi.toFixed(3)} mi\u00b2`;
+            }
         }
 
         this._results = {
