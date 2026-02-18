@@ -101,8 +101,13 @@ export class WidgetBase {
         el.id = `widget-${this.id}`;
         el.style.width = this.opts.width;
 
+        const isMobile = window.innerWidth < 768;
         const footerHtml = this.renderFooter();
+        const dragHandle = isMobile
+            ? `<div class="widget-drag-handle"><div class="handle-bar"></div></div>`
+            : '';
         el.innerHTML = `
+            ${dragHandle}
             <div class="gis-widget-header">
                 <span class="widget-icon">${this.icon}</span>
                 <span class="widget-title">${this.title}${this.opts.subtitle ? `<span class="widget-subtitle">${this.opts.subtitle}</span>` : ''}</span>
@@ -113,12 +118,23 @@ export class WidgetBase {
         `;
 
         el.querySelector('.widget-close').addEventListener('click', () => this.close());
+
         document.body.appendChild(el);
         this._el = el;
     }
 
     _anchorBottomRight() {
         if (!this._el) return;
+        const isMobile = window.innerWidth < 768;
+        if (isMobile) {
+            // CSS handles mobile positioning — clear any inline styles
+            this._el.style.right = '';
+            this._el.style.bottom = '';
+            this._el.style.left = '';
+            this._el.style.top = '';
+            this._el.style.width = '';
+            return;
+        }
         const margin = 16;
         this._el.style.right = margin + 'px';
         this._el.style.bottom = margin + 'px';
@@ -133,13 +149,99 @@ export class WidgetBase {
     }
 
     _bindDrag() {
-        const header = this._el.querySelector('.gis-widget-header');
-        header.addEventListener('mousedown', (e) => this._onDragStart(e));
-        header.addEventListener('touchstart', (e) => this._onDragStart(e), { passive: false });
+        const isMobile = window.innerWidth < 768;
+        if (isMobile) {
+            this._bindMobileSwipe();
+        } else {
+            const header = this._el.querySelector('.gis-widget-header');
+            header.addEventListener('mousedown', (e) => this._onDesktopDragStart(e));
+            header.addEventListener('touchstart', (e) => this._onDesktopDragStart(e), { passive: false });
+        }
     }
 
-    _onDragStart(e) {
-        // Don't drag if clicking close button
+    /* ---- Mobile: swipe down to collapse, swipe up to expand ---- */
+    _bindMobileSwipe() {
+        const handle = this._el.querySelector('.widget-drag-handle');
+        const header = this._el.querySelector('.gis-widget-header');
+        // Both the drag handle and header can be used to swipe
+        const targets = [handle, header].filter(Boolean);
+
+        targets.forEach(target => {
+            target.addEventListener('touchstart', (e) => this._onSwipeStart(e), { passive: false });
+        });
+
+        // Also allow tapping the drag-handle to toggle
+        if (handle) {
+            handle.addEventListener('click', () => {
+                this._el.classList.toggle('widget-collapsed');
+            });
+        }
+    }
+
+    _onSwipeStart(e) {
+        if (e.target.closest('.widget-close')) return;
+        e.preventDefault();
+
+        const startY = e.touches[0].clientY;
+        const startTime = Date.now();
+        const el = this._el;
+        const wasCollapsed = el.classList.contains('widget-collapsed');
+        const elHeight = el.offsetHeight;
+
+        // Disable CSS transition during drag for realtime feedback
+        el.classList.add('widget-dragging');
+
+        // Track cumulative translateY during the gesture
+        let currentDeltaY = 0;
+
+        const onMove = (ev) => {
+            ev.preventDefault();
+            const cy = ev.touches[0].clientY;
+            currentDeltaY = cy - startY;
+
+            if (wasCollapsed) {
+                // Currently collapsed — allow swiping UP to expand
+                // Base offset = 100% - 52px (collapsed position). Dragging up reduces it
+                const baseOffset = elHeight - 52;
+                const offset = Math.max(0, baseOffset + currentDeltaY);
+                el.style.transform = `translateY(${offset}px)`;
+            } else {
+                // Currently expanded — allow swiping DOWN to collapse
+                const offset = Math.max(0, currentDeltaY);
+                el.style.transform = `translateY(${offset}px)`;
+            }
+        };
+
+        const onEnd = () => {
+            document.removeEventListener('touchmove', onMove);
+            document.removeEventListener('touchend', onEnd);
+            el.classList.remove('widget-dragging');
+
+            const elapsed = Date.now() - startTime;
+            const absY = Math.abs(currentDeltaY);
+            // Threshold: quick flick (velocity) OR sufficient distance
+            const isFlick = absY > 30 && elapsed < 300;
+            const isFarEnough = absY > 60;
+
+            if (isFlick || isFarEnough) {
+                if (wasCollapsed && currentDeltaY < 0) {
+                    // Swiped UP while collapsed → expand
+                    el.classList.remove('widget-collapsed');
+                } else if (!wasCollapsed && currentDeltaY > 0) {
+                    // Swiped DOWN while expanded → collapse
+                    el.classList.add('widget-collapsed');
+                }
+            }
+            // Clear inline transform; let CSS class handle final state
+            el.style.transform = '';
+        };
+
+        document.addEventListener('touchmove', onMove, { passive: false });
+        document.addEventListener('touchend', onEnd);
+    }
+
+    /* ---- Desktop: standard drag-to-reposition ---- */
+    _onDesktopDragStart(e) {
         if (e.target.closest('.widget-close')) return;
         e.preventDefault();
 
@@ -156,7 +258,6 @@ export class WidgetBase {
 
         this._el.classList.add('dragging');
 
-        // Convert from right/bottom anchoring to left/top
         this._el.style.left = rect.left + 'px';
         this._el.style.top = rect.top + 'px';
         this._el.style.right = 'auto';
@@ -168,9 +269,7 @@ export class WidgetBase {
             let newLeft = this._dragState.origLeft + (cx - this._dragState.startX);
             let newTop = this._dragState.origTop + (cy - this._dragState.startY);
 
-            // Clamp to viewport
             const w = this._el.offsetWidth;
-            const h = this._el.offsetHeight;
             newLeft = Math.max(0, Math.min(window.innerWidth - w, newLeft));
             newTop = Math.max(0, Math.min(window.innerHeight - 40, newTop));
 

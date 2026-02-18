@@ -628,19 +628,50 @@
         min-height: 44px;
     }
 
-    /* ————— GIS WIDGETS: mobile ————— */
+    /* ————— GIS WIDGETS: mobile — bottom sheet with swipe-to-collapse ————— */
     .gis-widget {
         min-width: unset;
         max-width: unset;
-        width: 96vw;
-        left: 2vw !important;
-        right: 2vw !important;
-        top: 2vh !important;
-        max-height: 92vh;
-        border-radius: var(--radius-lg);
+        width: 100vw;
+        left: 0 !important;
+        right: 0 !important;
+        top: auto !important;
+        bottom: 0 !important;
+        max-height: 55vh;
+        border-radius: 16px 16px 0 0;
+        transition: transform 0.25s ease;
+        box-shadow: 0 -4px 24px rgba(0,0,0,0.5);
+    }
+    /* Collapsed state — slid down off screen, only header peek visible */
+    .gis-widget.widget-collapsed {
+        transform: translateY(calc(100% - 52px));
+    }
+    /* Drag handle bar at top of widget */
+    .widget-drag-handle {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 8px 0 4px;
+        cursor: grab;
+        -webkit-tap-highlight-color: transparent;
+        touch-action: none;
+    }
+    .widget-drag-handle .handle-bar {
+        width: 40px;
+        height: 4px;
+        border-radius: 2px;
+        background: rgba(255, 255, 255, 0.3);
+    }
+    .gis-widget.widget-dragging {
+        transition: none !important;
     }
     .gis-widget-header {
-        padding: 12px 14px;
+        padding: 8px 14px 12px;
+        position: relative;
+    }
+    /* Hide old collapse button — replaced by drag handle */
+    .widget-collapse-btn {
+        display: none !important;
     }
     .gis-widget-header .widget-close {
         font-size: 22px;
@@ -655,6 +686,8 @@
     }
     .gis-widget-body {
         padding: 14px;
+        overflow-y: auto;
+        max-height: calc(55vh - 100px);
     }
 
     /* ————— SPLASH MOBILE NOTICE: hide old banner ————— */
@@ -747,4 +780,6 @@
     .mobile-fab { display: none !important; }
     .mobile-flyout { display: none !important; }
     .mobile-flyout-backdrop { display: none !important; }
+    .widget-collapse-btn { display: none !important; }
+    .widget-drag-handle { display: none !important; }
 }

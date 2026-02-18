@@ -1045,49 +1045,80 @@ function mobileShowExportModal() {
         </label>
         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;">
             ${formats.map(f =>
-                `<button class="btn btn-primary btn-sm" style="flex:1 1 calc(50% - 4px);min-height:44px;" onclick="window.app.doExport('${f.key}')">${f.label}</button>`
+                `<button class="btn btn-primary btn-sm" style="flex:1 1 calc(50% - 4px);min-height:44px;" data-export="${f.key}">${f.label}</button>`
             ).join('')}
         </div>`;
     showModal('Export — ' + layer.name, html, {
-        onMount: (overlay) => {
+        onMount: (overlay, close) => {
             overlay.querySelector('#agol-toggle-mob')?.addEventListener('change', () => {
                 toggleAGOLCompat();
+            });
+            overlay.querySelectorAll('[data-export]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const fmt = btn.dataset.export;
+                    close(null);
+                    window.app.doExport(fmt);
+                });
             });
         }
     });
 }
 
 function mobileShowWidgetsModal() {
-    const html = `
-        <div style="display:flex;flex-direction:column;gap:8px;">
-            <button class="btn btn-secondary" style="min-height:48px;justify-content:flex-start;gap:12px;" onclick="window.app.openSpatialAnalyzer()">📊 Spatial Analyzer</button>
-            <button class="btn btn-secondary" style="min-height:48px;justify-content:flex-start;gap:12px;" onclick="window.app.openBulkUpdate()">✏️ Bulk Update</button>
-            <button class="btn btn-secondary" style="min-height:48px;justify-content:flex-start;gap:12px;" onclick="window.app.openProximityJoin()">📍 Proximity Join</button>
-        </div>`;
-    showModal('GIS Widgets', html);
+    const items = [
+        { label: '📊 Spatial Analyzer', action: 'openSpatialAnalyzer' },
+        { label: '✏️ Bulk Update', action: 'openBulkUpdate' },
+        { label: '📍 Proximity Join', action: 'openProximityJoin' },
+    ];
+    const html = `<div style="display:flex;flex-direction:column;gap:8px;">
+        ${items.map(i => `<button class="btn btn-secondary" style="min-height:48px;justify-content:flex-start;gap:12px;" data-action="${i.action}">${i.label}</button>`).join('')}
+    </div>`;
+    showModal('GIS Widgets', html, {
+        onMount: (overlay, close) => {
+            overlay.querySelectorAll('[data-action]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const fn = btn.dataset.action;
+                    close(null);
+                    if (window.app[fn]) window.app[fn]();
+                });
+            });
+        }
+    });
 }
 
 function mobileShowToolsModal() {
     const layers = getLayers();
-    const html = `
-        <div style="display:flex;flex-wrap:wrap;gap:6px;">
-            ${layers.length >= 2 ? '<button class="btn btn-primary btn-sm" style="flex:1 1 100%;min-height:44px;" onclick="window.app.mergeLayers()">🔗 Merge Layers</button>' : ''}
-            <button class="btn btn-secondary btn-sm" style="flex:1 1 calc(50% - 3px);min-height:44px;" onclick="window.app.openDistanceTool()">📏 Distance</button>
-            <button class="btn btn-secondary btn-sm" style="flex:1 1 calc(50% - 3px);min-height:44px;" onclick="window.app.openBearingTool()">🧭 Bearing</button>
-            <button class="btn btn-secondary btn-sm" style="flex:1 1 calc(50% - 3px);min-height:44px;" onclick="window.app.openBuffer()">⭕ Buffer</button>
-            <button class="btn btn-secondary btn-sm" style="flex:1 1 calc(50% - 3px);min-height:44px;" onclick="window.app.openBboxClip()">✂️ BBox Clip</button>
-            <button class="btn btn-secondary btn-sm" style="flex:1 1 calc(50% - 3px);min-height:44px;" onclick="window.app.openClip()">🔲 Clip</button>
-            <button class="btn btn-secondary btn-sm" style="flex:1 1 calc(50% - 3px);min-height:44px;" onclick="window.app.openSimplify()">〰️ Simplify</button>
-            <button class="btn btn-secondary btn-sm" style="flex:1 1 calc(50% - 3px);min-height:44px;" onclick="window.app.openBezierSpline()">🌊 Spline</button>
-            <button class="btn btn-secondary btn-sm" style="flex:1 1 calc(50% - 3px);min-height:44px;" onclick="window.app.openPolygonSmooth()">🔵 Smooth</button>
-            <button class="btn btn-secondary btn-sm" style="flex:1 1 calc(50% - 3px);min-height:44px;" onclick="window.app.openUnion()">🔶 Union</button>
-            <button class="btn btn-secondary btn-sm" style="flex:1 1 calc(50% - 3px);min-height:44px;" onclick="window.app.openDissolve()">🫧 Dissolve</button>
-            <button class="btn btn-secondary btn-sm" style="flex:1 1 calc(50% - 3px);min-height:44px;" onclick="window.app.openCombine()">🔗 Combine</button>
-            <button class="btn btn-secondary btn-sm" style="flex:1 1 calc(50% - 3px);min-height:44px;" onclick="window.app.openKinks()">⚠ Kinks</button>
-            <button class="btn btn-secondary btn-sm" style="flex:1 1 calc(50% - 3px);min-height:44px;" onclick="window.app.openNearestNeighborAnalysis()">📊 NN Analysis</button>
-            <button class="btn btn-secondary btn-sm" style="flex:1 1 calc(50% - 3px);min-height:44px;" onclick="window.app.openCoordinatesModal()">📍 Coordinates</button>
-        </div>`;
-    showModal('GIS Tools', html);
+    const items = [
+        ...(layers.length >= 2 ? [{ label: '🔗 Merge Layers', action: 'mergeLayers', full: true }] : []),
+        { label: '📏 Distance', action: 'openDistanceTool' },
+        { label: '🧭 Bearing', action: 'openBearingTool' },
+        { label: '⭕ Buffer', action: 'openBuffer' },
+        { label: '✂️ BBox Clip', action: 'openBboxClip' },
+        { label: '🔲 Clip', action: 'openClip' },
+        { label: '〰️ Simplify', action: 'openSimplify' },
+        { label: '🌊 Spline', action: 'openBezierSpline' },
+        { label: '🔵 Smooth', action: 'openPolygonSmooth' },
+        { label: '🔶 Union', action: 'openUnion' },
+        { label: '🫧 Dissolve', action: 'openDissolve' },
+        { label: '🔗 Combine', action: 'openCombine' },
+        { label: '⚠ Kinks', action: 'openKinks' },
+        { label: '📊 NN Analysis', action: 'openNearestNeighborAnalysis' },
+        { label: '📍 Coordinates', action: 'openCoordinatesModal' },
+    ];
+    const html = `<div style="display:flex;flex-wrap:wrap;gap:6px;">
+        ${items.map(i => `<button class="btn ${i.full ? 'btn-primary' : 'btn-secondary'} btn-sm" style="flex:1 1 ${i.full ? '100%' : 'calc(50% - 3px)'};min-height:44px;" data-action="${i.action}">${i.label}</button>`).join('')}
+    </div>`;
+    showModal('GIS Tools', html, {
+        onMount: (overlay, close) => {
+            overlay.querySelectorAll('[data-action]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const fn = btn.dataset.action;
+                    close(null);
+                    if (window.app[fn]) window.app[fn]();
+                });
+            });
+        }
+    });
 }
 
 function mobileShowLayersModal() {
@@ -1155,20 +1186,32 @@ function mobileShowDataToolsModal() {
         showToast('Import data first', 'warning');
         return;
     }
-    const html = `
-        <div style="display:flex;flex-wrap:wrap;gap:8px;">
-            <button class="btn btn-secondary" style="flex:1 1 calc(50% - 4px);min-height:48px;" onclick="window.app.openSplitColumn()">Split Column</button>
-            <button class="btn btn-secondary" style="flex:1 1 calc(50% - 4px);min-height:48px;" onclick="window.app.openCombineColumns()">Combine</button>
-            <button class="btn btn-secondary" style="flex:1 1 calc(50% - 4px);min-height:48px;" onclick="window.app.openTemplateBuilder()">Template</button>
-            <button class="btn btn-secondary" style="flex:1 1 calc(50% - 4px);min-height:48px;" onclick="window.app.openReplaceClean()">Replace/Clean</button>
-            <button class="btn btn-secondary" style="flex:1 1 calc(50% - 4px);min-height:48px;" onclick="window.app.openTypeConvert()">Type Convert</button>
-            <button class="btn btn-secondary" style="flex:1 1 calc(50% - 4px);min-height:48px;" onclick="window.app.openFilterBuilder()">Filter</button>
-            <button class="btn btn-secondary" style="flex:1 1 calc(50% - 4px);min-height:48px;" onclick="window.app.openDeduplicate()">Dedup</button>
-            <button class="btn btn-secondary" style="flex:1 1 calc(50% - 4px);min-height:48px;" onclick="window.app.openJoinTool()">Join</button>
-            <button class="btn btn-secondary" style="flex:1 1 calc(50% - 4px);min-height:48px;" onclick="window.app.openValidation()">Validate</button>
-            <button class="btn btn-secondary" style="flex:1 1 calc(50% - 4px);min-height:48px;" onclick="window.app.addUID()">Add UID</button>
-        </div>`;
-    showModal('Data Tools — ' + layer.name, html);
+    const items = [
+        { label: 'Split Column', action: 'openSplitColumn' },
+        { label: 'Combine', action: 'openCombineColumns' },
+        { label: 'Template', action: 'openTemplateBuilder' },
+        { label: 'Replace/Clean', action: 'openReplaceClean' },
+        { label: 'Type Convert', action: 'openTypeConvert' },
+        { label: 'Filter', action: 'openFilterBuilder' },
+        { label: 'Dedup', action: 'openDeduplicate' },
+        { label: 'Join', action: 'openJoinTool' },
+        { label: 'Validate', action: 'openValidation' },
+        { label: 'Add UID', action: 'addUID' },
+    ];
+    const html = `<div style="display:flex;flex-wrap:wrap;gap:8px;">
+        ${items.map(i => `<button class="btn btn-secondary" style="flex:1 1 calc(50% - 4px);min-height:48px;" data-action="${i.action}">${i.label}</button>`).join('')}
+    </div>`;
+    showModal('Data Tools — ' + layer.name, html, {
+        onMount: (overlay, close) => {
+            overlay.querySelectorAll('[data-action]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const fn = btn.dataset.action;
+                    close(null);
+                    if (window.app[fn]) window.app[fn]();
+                });
+            });
+        }
+    });
 }
 
 function mobileShowBasemapModal() {
