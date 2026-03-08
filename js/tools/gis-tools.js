@@ -491,6 +491,374 @@ export function pointsWithinPolygon(pointsDataset, polygonsDataset) {
     );
 }
 
+// ============================
+// Multi-Layer Spatial Analysis
+// ============================
+
+/**
+ * Spatial Join — assign polygon attributes to points that fall within them.
+ * For each point, finds the containing polygon and copies specified fields.
+ * @param {object} pointsDataset  - spatial dataset of points
+ * @param {object} polygonsDataset - spatial dataset of polygons
+ * @param {string[]} joinFields   - polygon field names to copy (empty = all)
+ * @param {string} prefix         - prefix for joined field names (default '')
+ * @returns {object} enriched points dataset
+ */
+export async function spatialJoinPointsInPolygons(pointsDataset, polygonsDataset, joinFields = [], prefix = '') {
+    if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
+
+    const task = new TaskRunner('Spatial Join', 'GISTools');
+    return task.run(async (t) => {
+        const points = pointsDataset.geojson.features;
+        const polygons = polygonsDataset.geojson.features.filter(f =>
+            f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon')
+        );
+        if (polygons.length === 0) throw new Error('Polygon layer has no polygon features');
+
+        const polyFields = joinFields.length > 0
+            ? joinFields
+            : Object.keys(polygons[0]?.properties || {});
+
+        const enriched = [];
+        for (let i = 0; i < points.length; i++) {
+            t.throwIfCancelled();
+            if (i % 200 === 0) {
+                t.updateProgress(Math.round((i / points.length) * 90), `Joining ${i}/${points.length}`);
+                await new Promise(r => setTimeout(r, 0));
+            }
+
+            const pt = points[i];
+            const props = { ...pt.properties };
+            let matched = false;
+
+            if (pt.geometry && pt.geometry.type === 'Point') {
+                for (const poly of polygons) {
+                    try {
+                        if (turf.booleanPointInPolygon(pt, poly)) {
+                            for (const field of polyFields) {
+                                props[prefix + field] = poly.properties?.[field] ?? null;
+                            }
+                            matched = true;
+                            break;
+                        }
+                    } catch (_) { /* skip invalid polygons */ }
+                }
+            }
+
+            if (!matched) {
+                for (const field of polyFields) {
+                    if (!(prefix + field in props)) props[prefix + field] = null;
+                }
+            }
+
+            enriched.push({ ...pt, properties: props });
+        }
+
+        // Build updated schema
+        const schema = JSON.parse(JSON.stringify(pointsDataset.schema));
+        for (const field of polyFields) {
+            const name = prefix + field;
+            if (!schema.fields.find(f => f.name === name)) {
+                const vals = enriched.map(f => f.properties[name]).filter(v => v != null);
+                schema.fields.push({
+                    name,
+                    type: typeof vals[0] === 'number' ? 'number' : 'string',
+                    nullCount: enriched.length - vals.length,
+                    uniqueCount: new Set(vals).size,
+                    sampleValues: vals.slice(0, 5),
+                    selected: true,
+                    outputName: name,
+                    order: schema.fields.length
+                });
+            }
+        }
+
+        const fc = { type: 'FeatureCollection', features: enriched };
+        return createSpatialDataset(`${pointsDataset.name}_spatialJoin`, fc, { format: 'derived', schema });
+    });
+}
+
+/**
+ * Nearest Join — for each feature in A, find the nearest feature in B
+ * and copy specified fields + add a distance field.
+ * @param {object} datasetA     - target dataset
+ * @param {object} datasetB     - join dataset
+ * @param {string[]} joinFields - B field names to copy (empty = all)
+ * @param {string} units        - distance units
+ * @returns {object} enriched dataset A
+ */
+export async function nearestJoin(datasetA, datasetB, joinFields = [], units = 'kilometers') {
+    if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
+
+    const task = new TaskRunner('Nearest Join', 'GISTools');
+    return task.run(async (t) => {
+        const featuresA = datasetA.geojson.features;
+        const featuresB = datasetB.geojson.features;
+        if (featuresB.length === 0) throw new Error('Join layer has no features');
+
+        const bFields = joinFields.length > 0
+            ? joinFields
+            : Object.keys(featuresB[0]?.properties || {});
+
+        // Pre-compute centroids for B
+        const centroidsB = featuresB.map(f => {
+            if (!f.geometry) return null;
+            return f.geometry.type === 'Point' ? f : turf.centroid(f);
+        });
+
+        const enriched = [];
+        for (let i = 0; i < featuresA.length; i++) {
+            t.throwIfCancelled();
+            if (i % 200 === 0) {
+                t.updateProgress(Math.round((i / featuresA.length) * 90), `Joining ${i}/${featuresA.length}`);
+                await new Promise(r => setTimeout(r, 0));
+            }
+
+            const fA = featuresA[i];
+            const props = { ...fA.properties };
+
+            if (fA.geometry) {
+                const ptA = fA.geometry.type === 'Point' ? fA : turf.centroid(fA);
+                let minDist = Infinity;
+                let nearestIdx = -1;
+
+                for (let j = 0; j < centroidsB.length; j++) {
+                    if (!centroidsB[j]) continue;
+                    const d = turf.distance(ptA, centroidsB[j], { units });
+                    if (d < minDist) { minDist = d; nearestIdx = j; }
+                }
+
+                if (nearestIdx >= 0) {
+                    for (const field of bFields) {
+                        props['nearest_' + field] = featuresB[nearestIdx].properties?.[field] ?? null;
+                    }
+                    props['nearest_distance'] = Math.round(minDist * 1000) / 1000;
+                    props['nearest_distance_units'] = units;
+                }
+            }
+
+            enriched.push({ ...fA, properties: props });
+        }
+
+        // Build updated schema
+        const schema = JSON.parse(JSON.stringify(datasetA.schema));
+        const addedFields = [...bFields.map(f => 'nearest_' + f), 'nearest_distance', 'nearest_distance_units'];
+        for (const name of addedFields) {
+            if (!schema.fields.find(f => f.name === name)) {
+                const vals = enriched.map(f => f.properties[name]).filter(v => v != null);
+                schema.fields.push({
+                    name,
+                    type: name === 'nearest_distance' ? 'number' : 'string',
+                    nullCount: enriched.length - vals.length,
+                    uniqueCount: new Set(vals).size,
+                    sampleValues: vals.slice(0, 5),
+                    selected: true,
+                    outputName: name,
+                    order: schema.fields.length
+                });
+            }
+        }
+
+        const fc = { type: 'FeatureCollection', features: enriched };
+        return createSpatialDataset(`${datasetA.name}_nearestJoin`, fc, { format: 'derived', schema });
+    });
+}
+
+/**
+ * Intersect two polygon layers — produces features where they overlap,
+ * with merged attributes from both layers.
+ */
+export async function intersectLayers(datasetA, datasetB) {
+    if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
+
+    const task = new TaskRunner('Intersect Layers', 'GISTools');
+    return task.run(async (t) => {
+        const polysA = datasetA.geojson.features.filter(f =>
+            f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon')
+        );
+        const polysB = datasetB.geojson.features.filter(f =>
+            f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon')
+        );
+        if (polysA.length === 0 || polysB.length === 0) {
+            throw new Error('Both layers must have polygon features');
+        }
+
+        const results = [];
+        let count = 0;
+        const total = polysA.length * polysB.length;
+
+        for (let i = 0; i < polysA.length; i++) {
+            for (let j = 0; j < polysB.length; j++) {
+                t.throwIfCancelled();
+                count++;
+                if (count % 500 === 0) {
+                    t.updateProgress(Math.round((count / total) * 90), `Intersecting ${count}/${total}`);
+                    await new Promise(r => setTimeout(r, 0));
+                }
+                try {
+                    const ix = turf.intersect(turf.featureCollection([polysA[i], polysB[j]]));
+                    if (ix) {
+                        ix.properties = {
+                            ...polysA[i].properties,
+                            ...Object.fromEntries(
+                                Object.entries(polysB[j].properties || {}).map(([k, v]) => ['B_' + k, v])
+                            )
+                        };
+                        results.push(ix);
+                    }
+                } catch (_) { /* skip invalid geometry pairs */ }
+            }
+        }
+
+        const fc = { type: 'FeatureCollection', features: results };
+        return createSpatialDataset(
+            `${datasetA.name}_intersect_${datasetB.name}`, fc, { format: 'derived' }
+        );
+    });
+}
+
+/**
+ * Merge two feature collections into one combined dataset.
+ */
+export function mergeLayers(datasetA, datasetB) {
+    const featuresA = datasetA.geojson?.features || [];
+    const featuresB = datasetB.geojson?.features || [];
+    const merged = [...featuresA.map(f => ({ ...f, properties: { ...f.properties } })),
+                    ...featuresB.map(f => ({ ...f, properties: { ...f.properties } }))];
+    const fc = { type: 'FeatureCollection', features: merged };
+    return createSpatialDataset(`${datasetA.name}_merged_${datasetB.name}`, fc, { format: 'derived' });
+}
+
+/**
+ * Difference — subtract polygon layer B from polygon layer A.
+ * For each polygon in A, removes overlapping areas from all polygons in B.
+ */
+export async function differenceLayers(datasetA, datasetB) {
+    if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
+
+    const task = new TaskRunner('Difference', 'GISTools');
+    return task.run(async (t) => {
+        const polysA = datasetA.geojson.features.filter(f =>
+            f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon')
+        );
+        const polysB = datasetB.geojson.features.filter(f =>
+            f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon')
+        );
+        if (polysA.length === 0) throw new Error('Layer A has no polygon features');
+
+        const results = [];
+        for (let i = 0; i < polysA.length; i++) {
+            t.throwIfCancelled();
+            if (i % 50 === 0) {
+                t.updateProgress(Math.round((i / polysA.length) * 90), `Differencing ${i}/${polysA.length}`);
+                await new Promise(r => setTimeout(r, 0));
+            }
+
+            let current = polysA[i];
+            for (const pb of polysB) {
+                if (!current) break;
+                try {
+                    current = turf.difference(turf.featureCollection([current, pb]));
+                } catch (_) { /* skip on error */ }
+            }
+
+            if (current && current.geometry) {
+                current.properties = { ...polysA[i].properties };
+                results.push(current);
+            }
+        }
+
+        const fc = { type: 'FeatureCollection', features: results };
+        return createSpatialDataset(
+            `${datasetA.name}_diff_${datasetB.name}`, fc, { format: 'derived' }
+        );
+    });
+}
+
+/**
+ * Summarize Within — count and summarize point features within each polygon.
+ * Adds count + optional numeric field aggregation to polygon properties.
+ * @param {object} polygonsDataset
+ * @param {object} pointsDataset
+ * @param {string} [sumField]   - optional numeric field to sum
+ * @param {string} [avgField]   - optional numeric field to average
+ * @returns {object} enriched polygons dataset
+ */
+export async function summarizeWithin(polygonsDataset, pointsDataset, sumField, avgField) {
+    if (typeof turf === 'undefined') throw new Error('Turf.js not loaded');
+
+    const task = new TaskRunner('Summarize Within', 'GISTools');
+    return task.run(async (t) => {
+        const polygons = polygonsDataset.geojson.features.filter(f =>
+            f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon')
+        );
+        const points = pointsDataset.geojson.features.filter(f =>
+            f.geometry && f.geometry.type === 'Point'
+        );
+
+        if (polygons.length === 0) throw new Error('Polygon layer has no polygon features');
+
+        const enriched = [];
+        for (let i = 0; i < polygons.length; i++) {
+            t.throwIfCancelled();
+            if (i % 50 === 0) {
+                t.updateProgress(Math.round((i / polygons.length) * 90), `Summarizing ${i}/${polygons.length}`);
+                await new Promise(r => setTimeout(r, 0));
+            }
+
+            const poly = polygons[i];
+            const contained = [];
+
+            for (const pt of points) {
+                try {
+                    if (turf.booleanPointInPolygon(pt, poly)) contained.push(pt);
+                } catch (_) { /* skip */ }
+            }
+
+            const props = { ...poly.properties, point_count: contained.length };
+
+            if (sumField && contained.length > 0) {
+                const vals = contained.map(p => parseFloat(p.properties?.[sumField])).filter(v => !isNaN(v));
+                props['sum_' + sumField] = vals.reduce((a, b) => a + b, 0);
+            }
+            if (avgField && contained.length > 0) {
+                const vals = contained.map(p => parseFloat(p.properties?.[avgField])).filter(v => !isNaN(v));
+                props['avg_' + avgField] = vals.length > 0
+                    ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 1000) / 1000
+                    : null;
+            }
+
+            enriched.push({ ...poly, properties: props });
+        }
+
+        // Build updated schema
+        const schema = JSON.parse(JSON.stringify(polygonsDataset.schema));
+        const newFields = ['point_count'];
+        if (sumField) newFields.push('sum_' + sumField);
+        if (avgField) newFields.push('avg_' + avgField);
+        for (const name of newFields) {
+            if (!schema.fields.find(f => f.name === name)) {
+                const vals = enriched.map(f => f.properties[name]).filter(v => v != null);
+                schema.fields.push({
+                    name,
+                    type: 'number',
+                    nullCount: enriched.length - vals.length,
+                    uniqueCount: new Set(vals).size,
+                    sampleValues: vals.slice(0, 5),
+                    min: vals.length ? Math.min(...vals) : null,
+                    max: vals.length ? Math.max(...vals) : null,
+                    selected: true,
+                    outputName: name,
+                    order: schema.fields.length
+                });
+            }
+        }
+
+        const fc = { type: 'FeatureCollection', features: enriched };
+        return createSpatialDataset(`${polygonsDataset.name}_summary`, fc, { format: 'derived', schema });
+    });
+}
+
 export default {
     bufferFeatures, simplifyFeatures, clipFeatures, dissolveFeatures,
     pointAlong, bearing, destination, distance, pointToLineDistance,
@@ -498,5 +866,7 @@ export default {
     lineOffsetFeatures, lineSliceAlong, lineSlice, createSector,
     lineIntersect, findKinks, combineFeatures, unionFeatures,
     nearestPoint, nearestPointOnLine, nearestPointToLine,
-    nearestNeighborAnalysis, pointsWithinPolygon
+    nearestNeighborAnalysis, pointsWithinPolygon,
+    spatialJoinPointsInPolygons, nearestJoin, intersectLayers,
+    mergeLayers, differenceLayers, summarizeWithin
 };

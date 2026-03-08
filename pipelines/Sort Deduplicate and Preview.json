@@ -1,0 +1,54 @@
+{
+  "_format": "gis-toolbox-workflow",
+  "version": 1,
+  "description": "Imports Utah address points with duplicates, sorts by street name, removes duplicates based on address, then previews and adds the cleaned data to the map.",
+  "sampleData": {
+    "node-1": {
+      "type": "spatial",
+      "name": "Utah Addresses",
+      "geojson": {
+        "type": "FeatureCollection",
+        "features": [
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.886, 40.758] }, "properties": { "address": "350 S State St", "street": "State St", "zip": "84111", "type": "Commercial" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.891, 40.768] }, "properties": { "address": "200 E 300 S", "street": "300 S", "zip": "84111", "type": "Residential" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.880, 40.755] }, "properties": { "address": "350 S State St", "street": "State St", "zip": "84111", "type": "Commercial" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.905, 40.772] }, "properties": { "address": "900 W North Temple", "street": "North Temple", "zip": "84116", "type": "Industrial" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.851, 40.740] }, "properties": { "address": "1300 E 2100 S", "street": "2100 S", "zip": "84105", "type": "Residential" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.895, 40.762] }, "properties": { "address": "200 E 300 S", "street": "300 S", "zip": "84111", "type": "Residential" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.870, 40.748] }, "properties": { "address": "600 S 700 E", "street": "700 E", "zip": "84102", "type": "Residential" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.900, 40.780] }, "properties": { "address": "450 W 500 N", "street": "500 N", "zip": "84116", "type": "Government" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.845, 40.738] }, "properties": { "address": "1300 E 2100 S", "street": "2100 S", "zip": "84105", "type": "Residential" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.875, 40.745] }, "properties": { "address": "800 S Main St", "street": "Main St", "zip": "84101", "type": "Commercial" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.862, 40.742] }, "properties": { "address": "1100 E 900 S", "street": "900 S", "zip": "84105", "type": "Residential" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.890, 40.770] }, "properties": { "address": "450 W 500 N", "street": "500 N", "zip": "84116", "type": "Government" } }
+        ]
+      },
+      "schema": {
+        "fields": [
+          { "name": "address", "type": "string" },
+          { "name": "street", "type": "string" },
+          { "name": "zip", "type": "string" },
+          { "name": "type", "type": "string" }
+        ],
+        "geometryType": "Point",
+        "featureCount": 12,
+        "crs": "EPSG:4326"
+      }
+    }
+  },
+  "pipeline": {
+    "nodes": [
+      { "id": "node-1", "type": "file-import", "position": { "x": 80, "y": 200 }, "config": { "fileName": "Utah Addresses.geojson" }, "comment": "Loads 12 address points in Salt Lake City. Some addresses appear more than once to show how deduplication works." },
+      { "id": "node-2", "type": "sort", "position": { "x": 340, "y": 200 }, "config": { "field": "street", "direction": "asc" }, "comment": "Sorts all addresses alphabetically by street name so the data is organized before removing duplicates." },
+      { "id": "node-3", "type": "deduplicate", "position": { "x": 580, "y": 200 }, "config": { "keyFields": ["address"], "keep": "first" }, "comment": "Removes duplicate rows where the address field is the same. Keeps the first occurrence of each address." },
+      { "id": "node-4", "type": "preview", "position": { "x": 840, "y": 120 }, "config": { "maxRows": 500 }, "comment": "Shows the cleaned data in a table. Compare the row count to the original 12 to see how many duplicates were removed." },
+      { "id": "node-5", "type": "add-to-map", "position": { "x": 840, "y": 280 }, "config": { "layerName": "Cleaned Utah Addresses" }, "comment": "Adds the deduplicated address points to the map." }
+    ],
+    "wires": [
+      { "from": "node-1", "fromPort": "out", "to": "node-2", "toPort": "in" },
+      { "from": "node-2", "fromPort": "out", "to": "node-3", "toPort": "in" },
+      { "from": "node-3", "fromPort": "out", "to": "node-4", "toPort": "in" },
+      { "from": "node-3", "fromPort": "out", "to": "node-5", "toPort": "in" }
+    ]
+  }
+}

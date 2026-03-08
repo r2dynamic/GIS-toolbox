@@ -28,14 +28,13 @@
     </script>
 
 
-    <!-- Leaflet CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-          crossorigin="anonymous">
+    <!-- MapLibre GL JS CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" crossorigin="anonymous">
 
     <!-- App CSS -->
     <link rel="stylesheet" href="css/main.css">
     <link rel="stylesheet" href="css/mobile.css">
+    <link rel="stylesheet" href="css/workflow.css">
 
     <!-- Favicons -->
     <link rel="icon" type="image/png" href="icons/favicon.png">
@@ -69,20 +68,27 @@
             <button class="btn btn-ghost btn-sm" id="btn-undo" disabled title="Undo">↩</button>
             <button class="btn btn-ghost btn-sm" id="btn-redo" disabled title="Redo">↪</button>
             <button class="btn btn-secondary btn-sm hidden" id="btn-merge">Merge Layers</button>
+            <div class="header-sep"></div>
+            <button class="btn btn-secondary btn-sm" id="btn-workflow" title="Data Pipeline Editor">
+                <span class="btn-icon-text">🧩</span><span>Data Pipeline Editor</span>
+            </button>
         </div>
         <div class="header-right">
             <!-- Mobile overflow menu button (hidden on desktop) -->
             <button class="btn btn-ghost btn-sm mobile-menu-btn" id="btn-mobile-menu" title="Menu">☰</button>
-            <select id="basemap-select" class="btn-sm" title="Basemap">
-                <option value="osm">Street Map</option>
-                <option value="light">Light / Gray</option>
-                <option value="dark">Dark</option>
-                <option value="voyager" selected>Voyager</option>
-                <option value="topo">Topographic</option>
-                <option value="satellite">Satellite</option>
-                <option value="hybrid">Hybrid</option>
-                <option value="none">No Basemap</option>
-            </select>
+
+            <!-- Basemap toggle: Voyager / Satellite -->
+            <div class="header-toggle" id="basemap-toggle">
+                <button class="header-toggle-option active" data-value="voyager">🗺️ Map</button>
+                <button class="header-toggle-option" data-value="satellite">🛰️ Satellite</button>
+            </div>
+
+            <!-- 2D / 3D toggle -->
+            <div class="header-toggle" id="dimension-toggle">
+                <button class="header-toggle-option active" data-value="2d">2D</button>
+                <button class="header-toggle-option" data-value="3d">3D</button>
+            </div>
+
             <button class="btn btn-ghost btn-sm" id="btn-logs" title="Logs">📋</button>
             <button class="btn btn-ghost" id="btn-info" title="Tool Guide" style="font-size:22px;padding:2px 6px;line-height:1;">ℹ️</button>
         </div>
@@ -278,10 +284,8 @@
     <!-- ================================ -->
     <!-- LIBRARY SCRIPTS (CDN, NO API KEYS) -->
     <!-- ================================ -->
-    <!-- Leaflet -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-            crossorigin="anonymous"></script>
+    <!-- MapLibre GL JS -->
+    <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" crossorigin="anonymous"></script>
 
     <!-- PapaParse (CSV) -->
     <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>

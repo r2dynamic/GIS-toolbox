@@ -13,7 +13,8 @@ export class BulkUpdateWidget extends WidgetBase {
         // state
         this._targetLayerId = null;
         this._selectedIndices = new Set();     // indices of selected features
-        this._highlightLayer = null;           // Leaflet layerGroup for cyan highlights
+        this._highlightSrcId = null;           // MapLibre source ID for cyan highlights
+        this._highlightLayerIds = null;        // MapLibre layer IDs for cyan highlights
         this._clickHandler = null;             // click handler ref for click-to-select
         this._clickMode = false;               // currently in click-to-select mode?
         this._fieldUpdates = {};               // { fieldName: newValue }
@@ -259,9 +260,7 @@ export class BulkUpdateWidget extends WidgetBase {
         const bbox = await this.mapManager.startRectangleDraw('Click and drag to draw selection rectangle');
         if (!bbox) return;
 
-        const [west, south, east, north] = bbox;
-        const bounds = L.latLngBounds([south, west], [north, east]);
-        this._selectFeaturesInBounds(bounds);
+        this._selectFeaturesInBboxArray(bbox);
         this._refreshBody();
         this._bindEvents();
     }
@@ -279,8 +278,6 @@ export class BulkUpdateWidget extends WidgetBase {
 
         return new Promise((resolve) => {
             const points = [];
-            let polyline = null;
-            let previewPoly = null;
             let clickTimer = null;
             const container = map.getContainer();
             container.style.cursor = 'crosshair';
@@ -290,14 +287,33 @@ export class BulkUpdateWidget extends WidgetBase {
                 () => { cleanup(); resolve(); }
             );
 
+            let previewSrcId = null;
+            let previewLayerIds = [];
+
             const drawPreview = () => {
-                if (polyline) { map.removeLayer(polyline); polyline = null; }
-                if (previewPoly) { map.removeLayer(previewPoly); previewPoly = null; }
-                if (points.length >= 2) {
-                    polyline = L.polyline(points, { color: '#d4a24e', weight: 2, dashArray: '6,4' }).addTo(map);
-                }
+                // Remove old preview
+                for (const lid of previewLayerIds) { if (map.getLayer(lid)) map.removeLayer(lid); }
+                if (previewSrcId && map.getSource(previewSrcId)) map.removeSource(previewSrcId);
+                previewLayerIds = [];
+                previewSrcId = null;
+
+                if (points.length < 2) return;
+
+                previewSrcId = `bu-poly-preview-${Date.now()}`;
+                const coords = points.map(p => [p[1], p[0]]); // [lng, lat]
                 if (points.length >= 3) {
-                    previewPoly = L.polygon(points, { color: '#d4a24e', weight: 1, fillOpacity: 0.08, dashArray: '4,4' }).addTo(map);
+                    const closed = [...coords, coords[0]];
+                    map.addSource(previewSrcId, { type: 'geojson', data: { type: 'Feature', geometry: { type: 'Polygon', coordinates: [closed] } } });
+                    const fillId = previewSrcId + '-fill';
+                    map.addLayer({ id: fillId, type: 'fill', source: previewSrcId, paint: { 'fill-color': '#d4a24e', 'fill-opacity': 0.08 } });
+                    const lineId = previewSrcId + '-line';
+                    map.addLayer({ id: lineId, type: 'line', source: previewSrcId, paint: { 'line-color': '#d4a24e', 'line-width': 2, 'line-dasharray': [6, 4] } });
+                    previewLayerIds = [fillId, lineId];
+                } else {
+                    map.addSource(previewSrcId, { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } } });
+                    const lineId = previewSrcId + '-line';
+                    map.addLayer({ id: lineId, type: 'line', source: previewSrcId, paint: { 'line-color': '#d4a24e', 'line-width': 2, 'line-dasharray': [6, 4] } });
+                    previewLayerIds = [lineId];
                 }
             };
 
@@ -305,16 +321,15 @@ export class BulkUpdateWidget extends WidgetBase {
                 if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; return; }
                 clickTimer = setTimeout(() => {
                     clickTimer = null;
-                    points.push([e.latlng.lat, e.latlng.lng]);
+                    points.push([e.lngLat.lat, e.lngLat.lng]);
                     drawPreview();
                 }, 200);
             };
 
             const onDblClick = (e) => {
                 if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
-                L.DomEvent.stopPropagation(e);
-                L.DomEvent.preventDefault(e);
-                points.push([e.latlng.lat, e.latlng.lng]);
+                if (e.originalEvent) { e.originalEvent.stopPropagation(); e.originalEvent.preventDefault(); }
+                points.push([e.lngLat.lat, e.lngLat.lng]);
                 finish();
             };
 
@@ -341,8 +356,9 @@ export class BulkUpdateWidget extends WidgetBase {
                 map.off('click', onClick);
                 map.off('dblclick', onDblClick);
                 document.removeEventListener('keydown', onKeydown);
-                if (polyline) { map.removeLayer(polyline); polyline = null; }
-                if (previewPoly) { map.removeLayer(previewPoly); previewPoly = null; }
+                for (const lid of previewLayerIds) { if (map.getLayer(lid)) map.removeLayer(lid); }
+                if (previewSrcId && map.getSource(previewSrcId)) map.removeSource(previewSrcId);
+                previewLayerIds = []; previewSrcId = null;
                 if (banner) banner.remove?.();
                 if (hadDblClickZoom) map.doubleClickZoom.enable();
             };
@@ -362,8 +378,9 @@ export class BulkUpdateWidget extends WidgetBase {
         if (!map) return;
 
         return new Promise((resolve) => {
-            let center = null;
-            let circle = null;
+            let centerLngLat = null;
+            let circleSrcId = null;
+            let circleLayerIds = [];
             const container = map.getContainer();
             container.style.cursor = 'crosshair';
 
@@ -373,28 +390,41 @@ export class BulkUpdateWidget extends WidgetBase {
             );
 
             const onClick = (e) => {
-                if (!center) {
-                    center = e.latlng;
+                if (!centerLngLat) {
+                    centerLngLat = e.lngLat;
                     if (banner) {
                         const txt = banner.querySelector?.('span') || banner;
                         if (txt.textContent !== undefined) txt.textContent = 'Move mouse to set radius, click to confirm.';
                     }
                 } else {
-                    const radiusM = center.distanceTo(e.latlng);
-                    finish(center, radiusM);
+                    const from = turf.point([centerLngLat.lng, centerLngLat.lat]);
+                    const to = turf.point([e.lngLat.lng, e.lngLat.lat]);
+                    const radiusM = turf.distance(from, to, { units: 'meters' });
+                    finish(centerLngLat, radiusM);
                 }
             };
 
             const onMouseMove = (e) => {
-                if (!center) return;
-                const radiusM = center.distanceTo(e.latlng);
-                if (circle) {
-                    circle.setRadius(radiusM);
+                if (!centerLngLat) return;
+                const from = turf.point([centerLngLat.lng, centerLngLat.lat]);
+                const to = turf.point([e.lngLat.lng, e.lngLat.lat]);
+                const radiusM = turf.distance(from, to, { units: 'meters' });
+                updateCirclePreview(radiusM);
+            };
+
+            const updateCirclePreview = (radiusM) => {
+                let circlePoly;
+                try { circlePoly = turf.circle([centerLngLat.lng, centerLngLat.lat], radiusM / 1000, { units: 'kilometers', steps: 64 }); } catch { return; }
+                if (circleSrcId && map.getSource(circleSrcId)) {
+                    map.getSource(circleSrcId).setData(circlePoly);
                 } else {
-                    circle = L.circle(center, {
-                        radius: radiusM,
-                        color: '#d4a24e', weight: 2, fillOpacity: 0.12, dashArray: '6,4'
-                    }).addTo(map);
+                    circleSrcId = `bu-circle-preview-${Date.now()}`;
+                    map.addSource(circleSrcId, { type: 'geojson', data: circlePoly });
+                    const fillId = circleSrcId + '-fill';
+                    map.addLayer({ id: fillId, type: 'fill', source: circleSrcId, paint: { 'fill-color': '#d4a24e', 'fill-opacity': 0.12 } });
+                    const lineId = circleSrcId + '-line';
+                    map.addLayer({ id: lineId, type: 'line', source: circleSrcId, paint: { 'line-color': '#d4a24e', 'line-width': 2, 'line-dasharray': [6, 4] } });
+                    circleLayerIds = [fillId, lineId];
                 }
             };
 
@@ -423,7 +453,9 @@ export class BulkUpdateWidget extends WidgetBase {
                 map.off('click', onClick);
                 map.off('mousemove', onMouseMove);
                 document.removeEventListener('keydown', onKeydown);
-                if (circle) { try { map.removeLayer(circle); } catch {} circle = null; }
+                for (const lid of circleLayerIds) { if (map.getLayer(lid)) map.removeLayer(lid); }
+                if (circleSrcId && map.getSource(circleSrcId)) map.removeSource(circleSrcId);
+                circleLayerIds = []; circleSrcId = null;
                 if (banner) banner.remove?.();
             };
 
@@ -459,17 +491,17 @@ export class BulkUpdateWidget extends WidgetBase {
             () => { this._exitClickMode(); this._refreshBody(); this._bindEvents(); }
         );
 
-        // Attach click handler to each sub-layer of the target layer
-        const leafletLayer = this.mapManager.dataLayers.get(this._targetLayerId);
-        if (!leafletLayer) { this._exitClickMode(); return; }
+        // Attach click handler to the data layer's MapLibre layers
+        const layerInfo = this.mapManager.dataLayers.get(this._targetLayerId);
+        if (!layerInfo) { this._exitClickMode(); return; }
 
         this._clickLayerHandlers = [];
-        leafletLayer.eachLayer((sub) => {
-            const idx = sub._featureIndex;
-            if (idx === undefined) return;
+        for (const lid of layerInfo.layerIds) {
             const handler = (e) => {
-                L.DomEvent.stopPropagation(e);
-                // Toggle feature in selection
+                if (e.originalEvent) e.originalEvent.stopPropagation();
+                const props = e.features?.[0]?.properties;
+                if (!props || props._featureIndex === undefined) return;
+                const idx = props._featureIndex;
                 if (this._selectedIndices.has(idx)) {
                     this._selectedIndices.delete(idx);
                 } else {
@@ -478,14 +510,13 @@ export class BulkUpdateWidget extends WidgetBase {
                 this._renderHighlights();
                 this._refreshBody();
                 this._bindEvents();
-                // Re-enter click mode visually (cursor etc)
                 if (this._clickMode && map.getContainer()) {
                     map.getContainer().style.cursor = 'pointer';
                 }
             };
-            sub.on('click', handler);
-            this._clickLayerHandlers.push({ sub, handler });
-        });
+            map.on('click', lid, handler);
+            this._clickLayerHandlers.push({ layerId: lid, handler });
+        }
 
         this._clickKeyHandler = (e) => {
             if (e.key === 'Escape') {
@@ -506,10 +537,11 @@ export class BulkUpdateWidget extends WidgetBase {
         const map = this.mapManager?.map;
         if (map) map.getContainer().style.cursor = '';
 
-        // Remove click handlers from sub-layers
+        // Remove click handlers from MapLibre layers
         if (this._clickLayerHandlers) {
-            for (const { sub, handler } of this._clickLayerHandlers) {
-                sub.off('click', handler);
+            const map = this.mapManager?.map;
+            for (const { layerId, handler } of this._clickLayerHandlers) {
+                if (map) map.off('click', layerId, handler);
             }
             this._clickLayerHandlers = null;
         }
@@ -530,32 +562,29 @@ export class BulkUpdateWidget extends WidgetBase {
        ================================================================ */
 
     /**
-     * Select features from the target layer that intersect the given Leaflet bounds.
+     * Select features from the target layer that intersect the given bbox.
      * Additive — merges with existing selection.
+     * @param {number[]} bbox - [west, south, east, north]
      */
-    _selectFeaturesInBounds(bounds) {
+    _selectFeaturesInBboxArray(bbox) {
         const layer = this._getTargetLayer();
         if (!layer?.geojson?.features) return;
 
+        const [west, south, east, north] = bbox;
+        const bboxPoly = turf.bboxPolygon([west, south, east, north]);
         const features = layer.geojson.features;
         for (let i = 0; i < features.length; i++) {
             const f = features[i];
             if (!f?.geometry) continue;
             try {
-                const bbox = turf.bbox(f);
-                const fBounds = L.latLngBounds([bbox[1], bbox[0]], [bbox[3], bbox[2]]);
-                if (bounds.intersects(fBounds)) {
-                    // Tighter check — use turf booleanIntersects with bboxPolygon
-                    const bboxPoly = turf.bboxPolygon([bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]);
-                    if (turf.booleanIntersects(f, bboxPoly)) {
-                        this._selectedIndices.add(i);
-                    }
+                if (turf.booleanIntersects(f, bboxPoly)) {
+                    this._selectedIndices.add(i);
                 }
             } catch {
-                // If geometry is degenerate, do a simpler bounds check
-                const bbox = turf.bbox(f);
-                const fBounds = L.latLngBounds([bbox[1], bbox[0]], [bbox[3], bbox[2]]);
-                if (bounds.intersects(fBounds)) this._selectedIndices.add(i);
+                try {
+                    const c = turf.centroid(f);
+                    if (turf.booleanPointInPolygon(c, bboxPoly)) this._selectedIndices.add(i);
+                } catch {}
             }
         }
         this._renderHighlights();
@@ -627,44 +656,42 @@ export class BulkUpdateWidget extends WidgetBase {
         const map = this.mapManager?.map;
         if (!map || this._selectedIndices.size === 0) return;
 
-        const leafletLayer = this.mapManager.dataLayers.get(this._targetLayerId);
-        if (!leafletLayer) return;
+        const layerInfo = this.mapManager.dataLayers.get(this._targetLayerId);
+        if (!layerInfo) return;
 
-        const group = L.layerGroup();
-        leafletLayer.eachLayer((sub) => {
-            if (this._selectedIndices.has(sub._featureIndex)) {
-                const feature = sub.feature;
-                if (!feature?.geometry) return;
-                const highlight = L.geoJSON(feature, {
-                    style: () => ({
-                        color: '#00e5ff',
-                        weight: 3,
-                        fillColor: '#00e5ff',
-                        fillOpacity: 0.18,
-                        dashArray: null
-                    }),
-                    pointToLayer: (f, latlng) => L.circleMarker(latlng, {
-                        radius: 8,
-                        color: '#00e5ff',
-                        weight: 3,
-                        fillColor: '#00e5ff',
-                        fillOpacity: 0.3
-                    }),
-                    interactive: false
-                });
-                group.addLayer(highlight);
-            }
-        });
+        const selectedFeatures = layerInfo.geojson.features.filter(f =>
+            this._selectedIndices.has(f.properties?._featureIndex)
+        );
+        if (selectedFeatures.length === 0) return;
 
-        group.addTo(map);
-        this._highlightLayer = group;
+        const srcId = `bu-highlight-${this._targetLayerId}`;
+        map.addSource(srcId, { type: 'geojson', data: { type: 'FeatureCollection', features: selectedFeatures } });
+
+        const ids = [];
+        const fillId = srcId + '-fill';
+        map.addLayer({ id: fillId, type: 'fill', source: srcId, filter: ['==', '$type', 'Polygon'], paint: { 'fill-color': '#00e5ff', 'fill-opacity': 0.18 } });
+        ids.push(fillId);
+        const lineId = srcId + '-line';
+        map.addLayer({ id: lineId, type: 'line', source: srcId, paint: { 'line-color': '#00e5ff', 'line-width': 3 } });
+        ids.push(lineId);
+        const circleId = srcId + '-circle';
+        map.addLayer({ id: circleId, type: 'circle', source: srcId, filter: ['==', '$type', 'Point'], paint: { 'circle-radius': 8, 'circle-color': '#00e5ff', 'circle-stroke-color': '#fff', 'circle-stroke-width': 3, 'circle-opacity': 0.8 } });
+        ids.push(circleId);
+
+        this._highlightSrcId = srcId;
+        this._highlightLayerIds = ids;
     }
 
     _clearHighlights() {
-        if (this._highlightLayer && this.mapManager?.map) {
-            try { this.mapManager.map.removeLayer(this._highlightLayer); } catch {}
+        const map = this.mapManager?.map;
+        if (this._highlightLayerIds) {
+            for (const lid of this._highlightLayerIds) { if (map?.getLayer(lid)) map.removeLayer(lid); }
+            this._highlightLayerIds = null;
         }
-        this._highlightLayer = null;
+        if (this._highlightSrcId) {
+            if (map?.getSource(this._highlightSrcId)) map.removeSource(this._highlightSrcId);
+            this._highlightSrcId = null;
+        }
     }
 
     /* ================================================================

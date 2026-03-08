@@ -1,0 +1,46 @@
+{
+  "_format": "gis-toolbox-workflow",
+  "version": 1,
+  "description": "Imports Utah fire stations, creates 3km buffers around each, then previews and adds the coverage areas to the map.",
+  "sampleData": {
+    "node-1": {
+      "type": "spatial",
+      "name": "Utah Fire Stations",
+      "geojson": {
+        "type": "FeatureCollection",
+        "features": [
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.8910, 40.7608] }, "properties": { "station_id": "FS-01", "name": "Station 1 - Downtown SLC", "staff": 14, "status": "Active" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.8380, 40.7450] }, "properties": { "station_id": "FS-02", "name": "Station 2 - Sugar House", "staff": 10, "status": "Active" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.9350, 40.7700] }, "properties": { "station_id": "FS-03", "name": "Station 3 - Rose Park", "staff": 8, "status": "Active" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.6582, 40.2338] }, "properties": { "station_id": "FS-04", "name": "Station 4 - Provo Central", "staff": 12, "status": "Active" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.9740, 41.2230] }, "properties": { "station_id": "FS-05", "name": "Station 5 - Ogden", "staff": 9, "status": "Active" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.8138, 40.6461] }, "properties": { "station_id": "FS-06", "name": "Station 6 - Sandy", "staff": 7, "status": "Reserve" } }
+        ]
+      },
+      "schema": {
+        "fields": [
+          { "name": "station_id", "type": "string" },
+          { "name": "name", "type": "string" },
+          { "name": "staff", "type": "number" },
+          { "name": "status", "type": "string" }
+        ],
+        "geometryType": "Point",
+        "featureCount": 6,
+        "crs": "EPSG:4326"
+      }
+    }
+  },
+  "pipeline": {
+    "nodes": [
+      { "id": "node-1", "type": "file-import", "position": { "x": 80, "y": 200 }, "config": { "fileName": "Utah Fire Stations.geojson" }, "comment": "Loads 6 fire station locations across Utah including Salt Lake City, Provo, Ogden, and Sandy." },
+      { "id": "node-2", "type": "buffer", "position": { "x": 360, "y": 200 }, "config": { "distance": 3, "units": "kilometers" }, "comment": "Creates a 3 kilometer circle around each fire station. This shows the approximate coverage area for each station." },
+      { "id": "node-3", "type": "preview", "position": { "x": 640, "y": 120 }, "config": { "maxRows": 500 }, "comment": "Shows the buffered areas in a table so you can see the data before adding to the map." },
+      { "id": "node-4", "type": "add-to-map", "position": { "x": 640, "y": 280 }, "config": { "layerName": "Fire Station Coverage (3km)" }, "comment": "Adds the coverage area polygons to the map so you can see them visually." }
+    ],
+    "wires": [
+      { "from": "node-1", "fromPort": "out", "to": "node-2", "toPort": "in" },
+      { "from": "node-2", "fromPort": "out", "to": "node-3", "toPort": "in" },
+      { "from": "node-2", "fromPort": "out", "to": "node-4", "toPort": "in" }
+    ]
+  }
+}

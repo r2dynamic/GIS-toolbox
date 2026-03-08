@@ -1,0 +1,53 @@
+{
+  "_format": "gis-toolbox-workflow",
+  "version": 1,
+  "description": "Imports a mixed-geometry dataset of Utah landmarks (points and polygons), splits them by geometry type, then previews and maps the points and polygons separately.",
+  "sampleData": {
+    "node-1": {
+      "type": "spatial",
+      "name": "Utah Landmarks Mixed",
+      "geojson": {
+        "type": "FeatureCollection",
+        "features": [
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.8910, 40.7608] }, "properties": { "name": "Salt Lake Temple", "category": "Historic", "county": "Salt Lake" } },
+          { "type": "Feature", "geometry": { "type": "Polygon", "coordinates": [[[-111.932, 40.771], [-111.932, 40.800], [-111.895, 40.800], [-111.895, 40.771], [-111.932, 40.771]]] }, "properties": { "name": "Salt Lake City International Airport", "category": "Infrastructure", "county": "Salt Lake" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.6582, 40.2338] }, "properties": { "name": "BYU Campus Center", "category": "Education", "county": "Utah" } },
+          { "type": "Feature", "geometry": { "type": "Polygon", "coordinates": [[[-111.665, 40.245], [-111.665, 40.260], [-111.640, 40.260], [-111.640, 40.245], [-111.665, 40.245]]] }, "properties": { "name": "Provo Municipal Park", "category": "Recreation", "county": "Utah" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-109.5925, 38.7270] }, "properties": { "name": "Delicate Arch Viewpoint", "category": "Natural", "county": "Grand" } },
+          { "type": "Feature", "geometry": { "type": "Polygon", "coordinates": [[[-109.620, 38.700], [-109.620, 38.750], [-109.560, 38.750], [-109.560, 38.700], [-109.620, 38.700]]] }, "properties": { "name": "Arches National Park Boundary", "category": "National Park", "county": "Grand" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-112.998, 37.269] }, "properties": { "name": "Zion Canyon Visitor Center", "category": "Natural", "county": "Washington" } },
+          { "type": "Feature", "geometry": { "type": "Polygon", "coordinates": [[[-113.030, 37.200], [-113.030, 37.350], [-112.950, 37.350], [-112.950, 37.200], [-113.030, 37.200]]] }, "properties": { "name": "Zion National Park Boundary", "category": "National Park", "county": "Washington" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.974, 41.223] }, "properties": { "name": "Ogden Union Station", "category": "Historic", "county": "Weber" } },
+          { "type": "Feature", "geometry": { "type": "Polygon", "coordinates": [[[-111.850, 40.740], [-111.850, 40.770], [-111.820, 40.770], [-111.820, 40.740], [-111.850, 40.740]]] }, "properties": { "name": "Sugar House Business District", "category": "Commercial", "county": "Salt Lake" } }
+        ]
+      },
+      "schema": {
+        "fields": [
+          { "name": "name", "type": "string" },
+          { "name": "category", "type": "string" },
+          { "name": "county", "type": "string" }
+        ],
+        "geometryType": "Mixed",
+        "featureCount": 10,
+        "crs": "EPSG:4326"
+      }
+    }
+  },
+  "pipeline": {
+    "nodes": [
+      { "id": "node-1", "type": "file-import", "position": { "x": 80, "y": 260 }, "config": { "fileName": "Utah Landmarks Mixed.geojson" }, "comment": "Loads a dataset with mixed geometry types — some features are points (like a visitor center) and some are polygons (like a park boundary). This is common with real-world data." },
+      { "id": "node-2", "type": "split-by-geometry", "position": { "x": 360, "y": 260 }, "config": {}, "comment": "Separates the mixed data into three outputs: points, lines, and polygons. Each output only contains features of that geometry type." },
+      { "id": "node-3", "type": "preview", "position": { "x": 640, "y": 100 }, "config": { "maxRows": 500 }, "comment": "Shows only the point features (landmarks like visitor centers and historic sites) in a table." },
+      { "id": "node-4", "type": "add-to-map", "position": { "x": 640, "y": 260 }, "config": { "layerName": "Utah Landmark Points" }, "comment": "Adds the point landmarks to the map as their own layer." },
+      { "id": "node-5", "type": "preview", "position": { "x": 640, "y": 420 }, "config": { "maxRows": 500 }, "comment": "Shows only the polygon features (areas like park boundaries and districts) in a table." },
+      { "id": "node-6", "type": "add-to-map", "position": { "x": 900, "y": 420 }, "config": { "layerName": "Utah Landmark Areas" }, "comment": "Adds the polygon areas to the map as a separate layer from the points." }
+    ],
+    "wires": [
+      { "from": "node-1", "fromPort": "out", "to": "node-2", "toPort": "in" },
+      { "from": "node-2", "fromPort": "points", "to": "node-3", "toPort": "in" },
+      { "from": "node-2", "fromPort": "points", "to": "node-4", "toPort": "in" },
+      { "from": "node-2", "fromPort": "polygons", "to": "node-5", "toPort": "in" },
+      { "from": "node-2", "fromPort": "polygons", "to": "node-6", "toPort": "in" }
+    ]
+  }
+}

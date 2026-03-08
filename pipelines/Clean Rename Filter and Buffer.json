@@ -1,0 +1,59 @@
+{
+  "_format": "gis-toolbox-workflow",
+  "version": 1,
+  "description": "A complex pipeline: imports Utah water wells, adds unique IDs, renames fields for clarity, filters to active wells with depth over 200ft, buffers the results by 500m, then previews and maps the protection zones.",
+  "sampleData": {
+    "node-1": {
+      "type": "spatial",
+      "name": "Utah Water Wells",
+      "geojson": {
+        "type": "FeatureCollection",
+        "features": [
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.900, 40.770] }, "properties": { "well_nm": "North Temple Well #1", "dpth_ft": 350, "stat": "Active", "yr": 1998, "gpm": 120 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.840, 40.740] }, "properties": { "well_nm": "Sugar House Well #3", "dpth_ft": 180, "stat": "Active", "yr": 2005, "gpm": 85 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.870, 40.690] }, "properties": { "well_nm": "Murray Deep Well", "dpth_ft": 520, "stat": "Active", "yr": 2010, "gpm": 200 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.810, 40.650] }, "properties": { "well_nm": "Sandy Well #7", "dpth_ft": 290, "stat": "Inactive", "yr": 1992, "gpm": 0 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.660, 40.240] }, "properties": { "well_nm": "Provo City Well #2", "dpth_ft": 410, "stat": "Active", "yr": 2015, "gpm": 150 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.970, 41.220] }, "properties": { "well_nm": "Ogden Municipal Well", "dpth_ft": 380, "stat": "Active", "yr": 2001, "gpm": 175 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.935, 40.775] }, "properties": { "well_nm": "Rose Park Well #4", "dpth_ft": 150, "stat": "Inactive", "yr": 1995, "gpm": 0 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.920, 40.810] }, "properties": { "well_nm": "North SLC Well", "dpth_ft": 260, "stat": "Active", "yr": 2018, "gpm": 95 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.710, 40.335] }, "properties": { "well_nm": "Orem Well #1", "dpth_ft": 310, "stat": "Active", "yr": 2008, "gpm": 130 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.725, 40.280] }, "properties": { "well_nm": "Lindon Backup Well", "dpth_ft": 190, "stat": "Inactive", "yr": 1990, "gpm": 0 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.880, 40.720] }, "properties": { "well_nm": "Millcreek Well #5", "dpth_ft": 440, "stat": "Active", "yr": 2012, "gpm": 160 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.850, 40.600] }, "properties": { "well_nm": "Draper City Well", "dpth_ft": 330, "stat": "Active", "yr": 2020, "gpm": 140 } }
+        ]
+      },
+      "schema": {
+        "fields": [
+          { "name": "well_nm", "type": "string" },
+          { "name": "dpth_ft", "type": "number" },
+          { "name": "stat", "type": "string" },
+          { "name": "yr", "type": "number" },
+          { "name": "gpm", "type": "number" }
+        ],
+        "geometryType": "Point",
+        "featureCount": 12,
+        "crs": "EPSG:4326"
+      }
+    }
+  },
+  "pipeline": {
+    "nodes": [
+      { "id": "node-1", "type": "file-import", "position": { "x": 80, "y": 220 }, "config": { "fileName": "Utah Water Wells.geojson" }, "comment": "Loads 12 water well locations across Utah. The field names are abbreviated (like dpth_ft and stat) which is common with raw government data." },
+      { "id": "node-2", "type": "add-unique-id", "position": { "x": 310, "y": 220 }, "config": { "fieldName": "well_id", "method": "sequential" }, "comment": "Adds a unique ID number (1, 2, 3, etc.) to each well in a new field called well_id. This is useful for tracking individual records." },
+      { "id": "node-3", "type": "rename-fields", "position": { "x": 530, "y": 220 }, "config": { "mappings": [{ "from": "well_nm", "to": "Well Name" }, { "from": "dpth_ft", "to": "Depth (ft)" }, { "from": "stat", "to": "Status" }, { "from": "yr", "to": "Year Drilled" }, { "from": "gpm", "to": "Flow (GPM)" }] }, "comment": "Renames the abbreviated field names to be more readable. For example, dpth_ft becomes Depth (ft) and stat becomes Status." },
+      { "id": "node-4", "type": "filter-rows", "position": { "x": 750, "y": 220 }, "config": { "rules": [{ "field": "Status", "operator": "equals", "value": "Active" }, { "field": "Depth (ft)", "operator": "greaterThan", "value": "200" }], "logic": "AND" }, "comment": "Keeps only wells that are both Active AND deeper than 200 feet. This filters out inactive wells and shallow wells." },
+      { "id": "node-5", "type": "buffer", "position": { "x": 970, "y": 220 }, "config": { "distance": 0.5, "units": "kilometers" }, "comment": "Creates a 500 meter protection zone circle around each remaining well. This represents the area that should be protected from contamination." },
+      { "id": "node-6", "type": "preview", "position": { "x": 1200, "y": 140 }, "config": { "maxRows": 500 }, "comment": "Shows the final buffered well protection zones in a table with all the cleaned-up field names." },
+      { "id": "node-7", "type": "add-to-map", "position": { "x": 1200, "y": 300 }, "config": { "layerName": "Active Deep Well Protection Zones" }, "comment": "Adds the protection zone polygons to the map so you can see the areas around each active deep well." }
+    ],
+    "wires": [
+      { "from": "node-1", "fromPort": "out", "to": "node-2", "toPort": "in" },
+      { "from": "node-2", "fromPort": "out", "to": "node-3", "toPort": "in" },
+      { "from": "node-3", "fromPort": "out", "to": "node-4", "toPort": "in" },
+      { "from": "node-4", "fromPort": "out", "to": "node-5", "toPort": "in" },
+      { "from": "node-5", "fromPort": "out", "to": "node-6", "toPort": "in" },
+      { "from": "node-5", "fromPort": "out", "to": "node-7", "toPort": "in" }
+    ]
+  }
+}

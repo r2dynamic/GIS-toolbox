@@ -634,8 +634,6 @@ export class SpatialAnalyzerWidget extends WidgetBase {
 
         return new Promise((resolve) => {
             const points = [];
-            let polyline = null;
-            let previewPoly = null;
             let clickTimer = null;
             const container = map.getContainer();
             container.style.cursor = 'crosshair';
@@ -645,14 +643,31 @@ export class SpatialAnalyzerWidget extends WidgetBase {
                 () => { cleanup(); resolve(); }
             );
 
+            let previewSrcId = null;
+            let previewLayerIds = [];
+
             const drawPreview = () => {
-                if (polyline) { map.removeLayer(polyline); polyline = null; }
-                if (previewPoly) { map.removeLayer(previewPoly); previewPoly = null; }
-                if (points.length >= 2) {
-                    polyline = L.polyline(points, { color: '#d4a24e', weight: 2, dashArray: '6,4' }).addTo(map);
-                }
+                for (const lid of previewLayerIds) { if (map.getLayer(lid)) map.removeLayer(lid); }
+                if (previewSrcId && map.getSource(previewSrcId)) map.removeSource(previewSrcId);
+                previewLayerIds = []; previewSrcId = null;
+
+                if (points.length < 2) return;
+
+                previewSrcId = `sa-poly-preview-${Date.now()}`;
+                const coords = points.map(p => [p[1], p[0]]);
                 if (points.length >= 3) {
-                    previewPoly = L.polygon(points, { color: '#d4a24e', weight: 1, fillOpacity: 0.08, dashArray: '4,4' }).addTo(map);
+                    const closed = [...coords, coords[0]];
+                    map.addSource(previewSrcId, { type: 'geojson', data: { type: 'Feature', geometry: { type: 'Polygon', coordinates: [closed] } } });
+                    const fillId = previewSrcId + '-fill';
+                    map.addLayer({ id: fillId, type: 'fill', source: previewSrcId, paint: { 'fill-color': '#d4a24e', 'fill-opacity': 0.08 } });
+                    const lineId = previewSrcId + '-line';
+                    map.addLayer({ id: lineId, type: 'line', source: previewSrcId, paint: { 'line-color': '#d4a24e', 'line-width': 2, 'line-dasharray': [6, 4] } });
+                    previewLayerIds = [fillId, lineId];
+                } else {
+                    map.addSource(previewSrcId, { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: coords } } });
+                    const lineId = previewSrcId + '-line';
+                    map.addLayer({ id: lineId, type: 'line', source: previewSrcId, paint: { 'line-color': '#d4a24e', 'line-width': 2, 'line-dasharray': [6, 4] } });
+                    previewLayerIds = [lineId];
                 }
             };
 
@@ -661,17 +676,16 @@ export class SpatialAnalyzerWidget extends WidgetBase {
                 if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; return; } // dblclick will handle
                 clickTimer = setTimeout(() => {
                     clickTimer = null;
-                    points.push([e.latlng.lat, e.latlng.lng]);
+                    points.push([e.lngLat.lat, e.lngLat.lng]);
                     drawPreview();
                 }, 200);
             };
 
             const onDblClick = (e) => {
                 if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
-                L.DomEvent.stopPropagation(e);
-                L.DomEvent.preventDefault(e);
+                if (e.originalEvent) { e.originalEvent.stopPropagation(); e.originalEvent.preventDefault(); }
                 // Add the double-click point
-                points.push([e.latlng.lat, e.latlng.lng]);
+                points.push([e.lngLat.lat, e.lngLat.lng]);
                 finish();
             };
 
@@ -701,8 +715,9 @@ export class SpatialAnalyzerWidget extends WidgetBase {
                 map.off('click', onClick);
                 map.off('dblclick', onDblClick);
                 document.removeEventListener('keydown', onKeydown);
-                if (polyline) { map.removeLayer(polyline); polyline = null; }
-                if (previewPoly) { map.removeLayer(previewPoly); previewPoly = null; }
+                for (const lid of previewLayerIds) { if (map.getLayer(lid)) map.removeLayer(lid); }
+                if (previewSrcId && map.getSource(previewSrcId)) map.removeSource(previewSrcId);
+                previewLayerIds = []; previewSrcId = null;
                 if (banner) banner.remove?.();
                 if (hadDblClickZoom) map.doubleClickZoom.enable();
             };
@@ -721,8 +736,9 @@ export class SpatialAnalyzerWidget extends WidgetBase {
         if (!map) return;
 
         return new Promise((resolve) => {
-            let center = null;
-            let circle = null;
+            let centerLngLat = null;
+            let circleSrcId = null;
+            let circleLayerIds = [];
             const container = map.getContainer();
             container.style.cursor = 'crosshair';
 
@@ -732,30 +748,43 @@ export class SpatialAnalyzerWidget extends WidgetBase {
             );
 
             const onClick = (e) => {
-                if (!center) {
+                if (!centerLngLat) {
                     // First click = center
-                    center = e.latlng;
+                    centerLngLat = e.lngLat;
                     if (banner) {
                         const txt = banner.querySelector?.('span') || banner;
                         if (txt.textContent !== undefined) txt.textContent = 'Move mouse to set radius, click to confirm.';
                     }
                 } else {
                     // Second click = set radius and finish
-                    const radiusM = center.distanceTo(e.latlng);
-                    finish(center, radiusM);
+                    const from = turf.point([centerLngLat.lng, centerLngLat.lat]);
+                    const to = turf.point([e.lngLat.lng, e.lngLat.lat]);
+                    const radiusM = turf.distance(from, to, { units: 'meters' });
+                    finish(centerLngLat, radiusM);
                 }
             };
 
             const onMouseMove = (e) => {
-                if (!center) return;
-                const radiusM = center.distanceTo(e.latlng);
-                if (circle) {
-                    circle.setRadius(radiusM);
+                if (!centerLngLat) return;
+                const from = turf.point([centerLngLat.lng, centerLngLat.lat]);
+                const to = turf.point([e.lngLat.lng, e.lngLat.lat]);
+                const radiusM = turf.distance(from, to, { units: 'meters' });
+                updateCirclePreview(radiusM);
+            };
+
+            const updateCirclePreview = (radiusM) => {
+                let circlePoly;
+                try { circlePoly = turf.circle([centerLngLat.lng, centerLngLat.lat], radiusM / 1000, { units: 'kilometers', steps: 64 }); } catch { return; }
+                if (circleSrcId && map.getSource(circleSrcId)) {
+                    map.getSource(circleSrcId).setData(circlePoly);
                 } else {
-                    circle = L.circle(center, {
-                        radius: radiusM,
-                        color: '#d4a24e', weight: 2, fillOpacity: 0.12, dashArray: '6,4'
-                    }).addTo(map);
+                    circleSrcId = `sa-circle-preview-${Date.now()}`;
+                    map.addSource(circleSrcId, { type: 'geojson', data: circlePoly });
+                    const fillId = circleSrcId + '-fill';
+                    map.addLayer({ id: fillId, type: 'fill', source: circleSrcId, paint: { 'fill-color': '#d4a24e', 'fill-opacity': 0.12 } });
+                    const lineId = circleSrcId + '-line';
+                    map.addLayer({ id: lineId, type: 'line', source: circleSrcId, paint: { 'line-color': '#d4a24e', 'line-width': 2, 'line-dasharray': [6, 4] } });
+                    circleLayerIds = [fillId, lineId];
                 }
             };
 
@@ -787,7 +816,9 @@ export class SpatialAnalyzerWidget extends WidgetBase {
                 map.off('click', onClick);
                 map.off('mousemove', onMouseMove);
                 document.removeEventListener('keydown', onKeydown);
-                if (circle) { try { map.removeLayer(circle); } catch {} circle = null; }
+                for (const lid of circleLayerIds) { if (map.getLayer(lid)) map.removeLayer(lid); }
+                if (circleSrcId && map.getSource(circleSrcId)) map.removeSource(circleSrcId);
+                circleLayerIds = []; circleSrcId = null;
                 if (banner) banner.remove?.();
             };
 
@@ -1133,41 +1164,65 @@ export class SpatialAnalyzerWidget extends WidgetBase {
     _showAreaPreview() {
         this._clearPreview();
         if (!this._analysisArea || !this.mapManager?.map) return;
+        const map = this.mapManager.map;
         try {
-            const geoLayer = L.geoJSON(this._analysisArea, {
-                style: { color: '#d4a24e', weight: 2, fillOpacity: 0.12, dashArray: '6,4' }
-            });
-            this._previewLayer = geoLayer;
-            geoLayer.addTo(this.mapManager.map);
+            const srcId = `sa-area-preview-${Date.now()}`;
+            map.addSource(srcId, { type: 'geojson', data: this._analysisArea });
+            const fillId = srcId + '-fill';
+            map.addLayer({ id: fillId, type: 'fill', source: srcId, paint: { 'fill-color': '#d4a24e', 'fill-opacity': 0.12 } });
+            const lineId = srcId + '-line';
+            map.addLayer({ id: lineId, type: 'line', source: srcId, paint: { 'line-color': '#d4a24e', 'line-width': 2, 'line-dasharray': [6, 4] } });
+            this._previewSrcId = srcId;
+            this._previewLayerIds = [fillId, lineId];
         } catch {}
     }
 
     _highlightResults(features) {
         this._clearPreview();
         if (!features.length || !this.mapManager?.map) return;
+        const map = this.mapManager.map;
         try {
-            const group = L.featureGroup();
+            const ids = [];
+            // Area outline
             if (this._analysisArea) {
-                L.geoJSON(this._analysisArea, {
-                    style: { color: '#d4a24e', weight: 2, fillOpacity: 0.08, dashArray: '6,4' }
-                }).addTo(group);
+                const areaSrc = `sa-area-hl-${Date.now()}`;
+                map.addSource(areaSrc, { type: 'geojson', data: this._analysisArea });
+                const aFillId = areaSrc + '-fill';
+                map.addLayer({ id: aFillId, type: 'fill', source: areaSrc, paint: { 'fill-color': '#d4a24e', 'fill-opacity': 0.08 } });
+                const aLineId = areaSrc + '-line';
+                map.addLayer({ id: aLineId, type: 'line', source: areaSrc, paint: { 'line-color': '#d4a24e', 'line-width': 2, 'line-dasharray': [6, 4] } });
+                ids.push(aFillId, aLineId);
+                this._previewExtraSrcIds = [areaSrc];
             }
-            L.geoJSON({ type: 'FeatureCollection', features }, {
-                style: { color: '#30d158', weight: 3, fillOpacity: 0.25 },
-                pointToLayer: (f, latlng) => L.circleMarker(latlng, {
-                    radius: 6, color: '#30d158', weight: 2, fillColor: '#30d158', fillOpacity: 0.5
-                })
-            }).addTo(group);
-            this._previewLayer = group;
-            group.addTo(this.mapManager.map);
+            // Result features
+            const resSrc = `sa-results-hl-${Date.now()}`;
+            map.addSource(resSrc, { type: 'geojson', data: { type: 'FeatureCollection', features } });
+            const rFillId = resSrc + '-fill';
+            map.addLayer({ id: rFillId, type: 'fill', source: resSrc, filter: ['==', '$type', 'Polygon'], paint: { 'fill-color': '#30d158', 'fill-opacity': 0.25 } });
+            const rLineId = resSrc + '-line';
+            map.addLayer({ id: rLineId, type: 'line', source: resSrc, paint: { 'line-color': '#30d158', 'line-width': 3 } });
+            const rCircleId = resSrc + '-circle';
+            map.addLayer({ id: rCircleId, type: 'circle', source: resSrc, filter: ['==', '$type', 'Point'], paint: { 'circle-radius': 6, 'circle-color': '#30d158', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2, 'circle-opacity': 0.8 } });
+            ids.push(rFillId, rLineId, rCircleId);
+            this._previewSrcId = resSrc;
+            this._previewLayerIds = ids;
         } catch {}
     }
 
     _clearPreview() {
-        if (this._previewLayer && this.mapManager?.map) {
-            try { this.mapManager.map.removeLayer(this._previewLayer); } catch {}
+        const map = this.mapManager?.map;
+        if (this._previewLayerIds) {
+            for (const lid of this._previewLayerIds) { if (map?.getLayer(lid)) map.removeLayer(lid); }
+            this._previewLayerIds = null;
         }
-        this._previewLayer = null;
+        if (this._previewSrcId) {
+            if (map?.getSource(this._previewSrcId)) map.removeSource(this._previewSrcId);
+            this._previewSrcId = null;
+        }
+        if (this._previewExtraSrcIds) {
+            for (const sid of this._previewExtraSrcIds) { if (map?.getSource(sid)) map.removeSource(sid); }
+            this._previewExtraSrcIds = null;
+        }
     }
 
     /* ================================================================

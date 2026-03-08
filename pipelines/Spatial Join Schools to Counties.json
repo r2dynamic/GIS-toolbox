@@ -1,0 +1,71 @@
+{
+  "_format": "gis-toolbox-workflow",
+  "version": 1,
+  "description": "Joins Utah school points to county polygons using a spatial join, so each school gets the county name it falls within. Previews and adds the enriched result to the map.",
+  "sampleData": {
+    "node-1": {
+      "type": "spatial",
+      "name": "Utah Schools",
+      "geojson": {
+        "type": "FeatureCollection",
+        "features": [
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.8560, 40.7510] }, "properties": { "school": "East High School", "district": "SLC School District", "students": 2100 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.9020, 40.7620] }, "properties": { "school": "West High School", "district": "SLC School District", "students": 1850 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.8140, 40.6500] }, "properties": { "school": "Alta High School", "district": "Canyons District", "students": 2300 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.6580, 40.2460] }, "properties": { "school": "Provo High School", "district": "Provo District", "students": 1600 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.9700, 41.2200] }, "properties": { "school": "Ogden High School", "district": "Ogden District", "students": 1750 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.8340, 40.7670] }, "properties": { "school": "Highland High School", "district": "SLC School District", "students": 1900 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.7100, 40.3350] }, "properties": { "school": "Orem High School", "district": "Alpine District", "students": 1450 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.8780, 40.6900] }, "properties": { "school": "Hillcrest High School", "district": "Canyons District", "students": 2050 } }
+        ]
+      },
+      "schema": {
+        "fields": [
+          { "name": "school", "type": "string" },
+          { "name": "district", "type": "string" },
+          { "name": "students", "type": "number" }
+        ],
+        "geometryType": "Point",
+        "featureCount": 8,
+        "crs": "EPSG:4326"
+      }
+    },
+    "node-2": {
+      "type": "spatial",
+      "name": "Utah Counties",
+      "geojson": {
+        "type": "FeatureCollection",
+        "features": [
+          { "type": "Feature", "geometry": { "type": "Polygon", "coordinates": [[[-112.100, 40.600], [-112.100, 40.850], [-111.750, 40.850], [-111.750, 40.600], [-112.100, 40.600]]] }, "properties": { "county_name": "Salt Lake", "population": 1186000, "area_sqmi": 808 } },
+          { "type": "Feature", "geometry": { "type": "Polygon", "coordinates": [[[-111.750, 40.100], [-111.750, 40.450], [-111.450, 40.450], [-111.450, 40.100], [-111.750, 40.100]]] }, "properties": { "county_name": "Utah", "population": 684000, "area_sqmi": 2144 } },
+          { "type": "Feature", "geometry": { "type": "Polygon", "coordinates": [[[-112.100, 41.050], [-112.100, 41.350], [-111.800, 41.350], [-111.800, 41.050], [-112.100, 41.050]]] }, "properties": { "county_name": "Weber", "population": 262000, "area_sqmi": 659 } }
+        ]
+      },
+      "schema": {
+        "fields": [
+          { "name": "county_name", "type": "string" },
+          { "name": "population", "type": "number" },
+          { "name": "area_sqmi", "type": "number" }
+        ],
+        "geometryType": "Polygon",
+        "featureCount": 3,
+        "crs": "EPSG:4326"
+      }
+    }
+  },
+  "pipeline": {
+    "nodes": [
+      { "id": "node-1", "type": "file-import", "position": { "x": 80, "y": 140 }, "config": { "fileName": "Utah Schools.geojson" }, "comment": "Loads 8 high school locations across Utah. These are the points that will receive county information." },
+      { "id": "node-2", "type": "file-import", "position": { "x": 80, "y": 340 }, "config": { "fileName": "Utah Counties.geojson" }, "comment": "Loads 3 Utah county polygons (Salt Lake, Utah, Weber). These areas are used to determine which county each school is in." },
+      { "id": "node-3", "type": "spatial-join", "position": { "x": 400, "y": 240 }, "config": { "joinFields": "", "prefix": "" }, "comment": "Joins schools to counties based on location. Each school point gets the county name and population from whichever county polygon it falls inside." },
+      { "id": "node-4", "type": "preview", "position": { "x": 680, "y": 160 }, "config": { "maxRows": 500 }, "comment": "Shows each school with its new county fields so you can verify the join worked correctly." },
+      { "id": "node-5", "type": "add-to-map", "position": { "x": 680, "y": 320 }, "config": { "layerName": "Schools with County Info" }, "comment": "Adds the enriched school points (now with county data) to the map." }
+    ],
+    "wires": [
+      { "from": "node-1", "fromPort": "out", "to": "node-3", "toPort": "points" },
+      { "from": "node-2", "fromPort": "out", "to": "node-3", "toPort": "polygons" },
+      { "from": "node-3", "fromPort": "out", "to": "node-4", "toPort": "in" },
+      { "from": "node-3", "fromPort": "out", "to": "node-5", "toPort": "in" }
+    ]
+  }
+}

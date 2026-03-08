@@ -2,7 +2,7 @@
 // GIS Toolbox — Service Worker
 // Bump CACHE_VERSION to push updates
 // ============================================
-const CACHE_VERSION = '1.19.17';
+const CACHE_VERSION = '1.31.4';
 const CACHE_NAME = `gis-toolbox-v${CACHE_VERSION}`;
 
 const APP_FILES = [
@@ -83,13 +83,42 @@ const APP_FILES = [
     './js/agol/compatibility.js',
 
     // Photo
-    './js/photo/photo-mapper.js'
+    './js/photo/photo-mapper.js',
+
+    // Workflow
+    './js/workflow/nodes/node-base.js',
+    './js/workflow/nodes/input-nodes.js',
+    './js/workflow/nodes/transform-nodes.js',
+    './js/workflow/nodes/spatial-nodes.js',
+    './js/workflow/nodes/enrichment-nodes.js',
+    './js/workflow/nodes/output-nodes.js',
+    './js/workflow/workflow-engine.js',
+    './js/workflow/workflow-canvas.js',
+    './js/workflow/workflow-palette.js',
+    './js/workflow/workflow-inspector.js',
+    './js/workflow/workflow-data-preview.js',
+    './js/workflow/workflow-overlay.js',
+    './js/workflow/workflow-store.js',
+
+    // Workflow CSS
+    './css/workflow.css',
+
+    // Preconfigured pipeline examples
+    './pipelines/index.json',
+    './pipelines/Filter and Preview.json',
+    './pipelines/Buffer and Add to Map.json',
+    './pipelines/Sort Deduplicate and Preview.json',
+    './pipelines/Split Mixed Geometry.json',
+    './pipelines/Spatial Join Schools to Counties.json',
+    './pipelines/Merge and Sort Trails.json',
+    './pipelines/Nearest Join Hospitals.json',
+    './pipelines/Clean Rename Filter and Buffer.json'
 ];
 
 // CDN libraries — versioned, rarely change
 const CDN_FILES = [
-    'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
-    'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+    'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css',
+    'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js',
     'https://unpkg.com/papaparse@5.4.1/papaparse.min.js',
     'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js',
     'https://unpkg.com/jszip@3.10.1/dist/jszip.min.js',

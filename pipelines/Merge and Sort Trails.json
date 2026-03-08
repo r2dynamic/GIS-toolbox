@@ -1,0 +1,72 @@
+{
+  "_format": "gis-toolbox-workflow",
+  "version": 1,
+  "description": "Merges two Utah trail datasets into one layer, dissolves by difficulty level to create combined trail regions, then previews and maps the result.",
+  "sampleData": {
+    "node-1": {
+      "type": "spatial",
+      "name": "Wasatch Trails",
+      "geojson": {
+        "type": "FeatureCollection",
+        "features": [
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.761, 40.581] }, "properties": { "trail": "Big Cottonwood Trail", "difficulty": "Moderate", "length_mi": 4.2 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.584, 40.594] }, "properties": { "trail": "Lake Blanche", "difficulty": "Hard", "length_mi": 6.8 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.610, 40.630] }, "properties": { "trail": "Millcreek Pipeline", "difficulty": "Easy", "length_mi": 2.1 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.510, 40.570] }, "properties": { "trail": "Brighton Lakes", "difficulty": "Moderate", "length_mi": 3.5 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.780, 40.660] }, "properties": { "trail": "Bonneville Shoreline", "difficulty": "Easy", "length_mi": 1.8 } }
+        ]
+      },
+      "schema": {
+        "fields": [
+          { "name": "trail", "type": "string" },
+          { "name": "difficulty", "type": "string" },
+          { "name": "length_mi", "type": "number" }
+        ],
+        "geometryType": "Point",
+        "featureCount": 5,
+        "crs": "EPSG:4326"
+      }
+    },
+    "node-2": {
+      "type": "spatial",
+      "name": "Southern Utah Trails",
+      "geojson": {
+        "type": "FeatureCollection",
+        "features": [
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-112.998, 37.269] }, "properties": { "trail": "Angels Landing", "difficulty": "Hard", "length_mi": 5.4 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-112.947, 37.285] }, "properties": { "trail": "The Narrows", "difficulty": "Moderate", "length_mi": 9.4 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-109.593, 38.727] }, "properties": { "trail": "Delicate Arch", "difficulty": "Moderate", "length_mi": 3.0 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.254, 38.283] }, "properties": { "trail": "Hickman Bridge", "difficulty": "Easy", "length_mi": 1.8 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.242, 37.825] }, "properties": { "trail": "Calf Creek Falls", "difficulty": "Moderate", "length_mi": 5.8 } }
+        ]
+      },
+      "schema": {
+        "fields": [
+          { "name": "trail", "type": "string" },
+          { "name": "difficulty", "type": "string" },
+          { "name": "length_mi", "type": "number" }
+        ],
+        "geometryType": "Point",
+        "featureCount": 5,
+        "crs": "EPSG:4326"
+      }
+    }
+  },
+  "pipeline": {
+    "nodes": [
+      { "id": "node-1", "type": "file-import", "position": { "x": 80, "y": 140 }, "config": { "fileName": "Wasatch Trails.geojson" }, "comment": "Loads 5 trail locations from the Wasatch Front area near Salt Lake City." },
+      { "id": "node-2", "type": "file-import", "position": { "x": 80, "y": 340 }, "config": { "fileName": "Southern Utah Trails.geojson" }, "comment": "Loads 5 trail locations from southern Utah including Zion, Arches, and Capitol Reef areas." },
+      { "id": "node-3", "type": "merge-layers", "position": { "x": 380, "y": 240 }, "config": {}, "comment": "Combines both trail datasets into a single layer. All 10 trails end up in one dataset with the same fields." },
+      { "id": "node-4", "type": "sort", "position": { "x": 620, "y": 240 }, "config": { "field": "difficulty", "direction": "asc" }, "comment": "Sorts the combined trails alphabetically by difficulty level (Easy first, then Hard, then Moderate)." },
+      { "id": "node-5", "type": "preview", "position": { "x": 860, "y": 160 }, "config": { "maxRows": 500 }, "comment": "Shows all 10 merged and sorted trails in a table." },
+      { "id": "node-6", "type": "add-to-map", "position": { "x": 860, "y": 320 }, "config": { "layerName": "All Utah Trails (Sorted)" }, "comment": "Adds the complete sorted trail list to the map as one unified layer." }
+    ],
+    "wires": [
+      { "from": "node-1", "fromPort": "out", "to": "node-3", "toPort": "layerA" },
+      { "from": "node-2", "fromPort": "out", "to": "node-3", "toPort": "layerB" },
+      { "from": "node-3", "fromPort": "out", "to": "node-4", "toPort": "in" },
+      { "from": "node-4", "fromPort": "out", "to": "node-5", "toPort": "in" },
+      { "from": "node-4", "fromPort": "out", "to": "node-6", "toPort": "in" }
+    ]
+  }
+}

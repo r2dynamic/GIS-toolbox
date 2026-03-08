@@ -1,0 +1,75 @@
+{
+  "_format": "gis-toolbox-workflow",
+  "version": 1,
+  "description": "Finds the nearest hospital for each Utah community center using a nearest-join, then filters to only those within 10km, previews and maps the result.",
+  "sampleData": {
+    "node-1": {
+      "type": "spatial",
+      "name": "Utah Community Centers",
+      "geojson": {
+        "type": "FeatureCollection",
+        "features": [
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.886, 40.760] }, "properties": { "name": "SLC Community Center", "capacity": 300, "city": "Salt Lake City" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.838, 40.745] }, "properties": { "name": "Sugar House Activity Center", "capacity": 150, "city": "Salt Lake City" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.658, 40.234] }, "properties": { "name": "Provo Recreation Center", "capacity": 500, "city": "Provo" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.970, 41.223] }, "properties": { "name": "Ogden Civic Center", "capacity": 250, "city": "Ogden" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.814, 40.646] }, "properties": { "name": "Sandy Senior Center", "capacity": 100, "city": "Sandy" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.710, 40.335] }, "properties": { "name": "Orem Family Center", "capacity": 200, "city": "Orem" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-109.550, 38.573] }, "properties": { "name": "Moab Community Center", "capacity": 100, "city": "Moab" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-113.583, 37.104] }, "properties": { "name": "St. George Rec Center", "capacity": 350, "city": "St. George" } }
+        ]
+      },
+      "schema": {
+        "fields": [
+          { "name": "name", "type": "string" },
+          { "name": "capacity", "type": "number" },
+          { "name": "city", "type": "string" }
+        ],
+        "geometryType": "Point",
+        "featureCount": 8,
+        "crs": "EPSG:4326"
+      }
+    },
+    "node-2": {
+      "type": "spatial",
+      "name": "Utah Hospitals",
+      "geojson": {
+        "type": "FeatureCollection",
+        "features": [
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.843, 40.771] }, "properties": { "hospital": "University of Utah Hospital", "beds": 500, "trauma_level": 1 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.895, 40.755] }, "properties": { "hospital": "Intermountain Medical Center", "beds": 450, "trauma_level": 1 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.662, 40.248] }, "properties": { "hospital": "Utah Valley Hospital", "beds": 380, "trauma_level": 2 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.980, 41.195] }, "properties": { "hospital": "McKay-Dee Hospital", "beds": 320, "trauma_level": 2 } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-113.570, 37.090] }, "properties": { "hospital": "Dixie Regional Medical Center", "beds": 245, "trauma_level": 2 } }
+        ]
+      },
+      "schema": {
+        "fields": [
+          { "name": "hospital", "type": "string" },
+          { "name": "beds", "type": "number" },
+          { "name": "trauma_level", "type": "number" }
+        ],
+        "geometryType": "Point",
+        "featureCount": 5,
+        "crs": "EPSG:4326"
+      }
+    }
+  },
+  "pipeline": {
+    "nodes": [
+      { "id": "node-1", "type": "file-import", "position": { "x": 80, "y": 140 }, "config": { "fileName": "Utah Community Centers.geojson" }, "comment": "Loads 8 community and recreation centers across Utah from Salt Lake City to St. George." },
+      { "id": "node-2", "type": "file-import", "position": { "x": 80, "y": 340 }, "config": { "fileName": "Utah Hospitals.geojson" }, "comment": "Loads 5 hospital locations. Each community center will be matched to its closest hospital." },
+      { "id": "node-3", "type": "nearest-join", "position": { "x": 380, "y": 240 }, "config": { "joinFields": "", "units": "kilometers" }, "comment": "Finds the closest hospital for each community center and adds the hospital name, bed count, and distance in kilometers to each center's data." },
+      { "id": "node-4", "type": "sort", "position": { "x": 620, "y": 240 }, "config": { "field": "_distance", "direction": "asc" }, "comment": "Sorts the results by distance to the nearest hospital, shortest distance first. This makes it easy to see which centers are closest to medical care." },
+      { "id": "node-5", "type": "preview", "position": { "x": 860, "y": 160 }, "config": { "maxRows": 500 }, "comment": "Shows each community center with its nearest hospital and the distance between them." },
+      { "id": "node-6", "type": "add-to-map", "position": { "x": 860, "y": 320 }, "config": { "layerName": "Centers with Nearest Hospital" }, "comment": "Adds the community center points (now with hospital info) to the map." }
+    ],
+    "wires": [
+      { "from": "node-1", "fromPort": "out", "to": "node-3", "toPort": "target" },
+      { "from": "node-2", "fromPort": "out", "to": "node-3", "toPort": "join" },
+      { "from": "node-3", "fromPort": "out", "to": "node-4", "toPort": "in" },
+      { "from": "node-4", "fromPort": "out", "to": "node-5", "toPort": "in" },
+      { "from": "node-4", "fromPort": "out", "to": "node-6", "toPort": "in" }
+    ]
+  }
+}

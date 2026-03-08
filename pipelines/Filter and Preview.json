@@ -1,0 +1,50 @@
+{
+  "_format": "gis-toolbox-workflow",
+  "version": 1,
+  "description": "Imports Utah trailheads, filters to those above 7000 ft elevation, then previews and adds the result to the map.",
+  "sampleData": {
+    "node-1": {
+      "type": "spatial",
+      "name": "Utah Trailheads",
+      "geojson": {
+        "type": "FeatureCollection",
+        "features": [
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.7610, 40.5812] }, "properties": { "name": "Big Cottonwood Trail", "elevation_ft": 7200, "difficulty": "Moderate", "county": "Salt Lake" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.5835, 40.5940] }, "properties": { "name": "Lake Blanche", "elevation_ft": 8920, "difficulty": "Hard", "county": "Salt Lake" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.6100, 40.6300] }, "properties": { "name": "Millcreek Pipeline", "elevation_ft": 5400, "difficulty": "Easy", "county": "Salt Lake" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.5100, 40.5700] }, "properties": { "name": "Brighton Lakes", "elevation_ft": 9500, "difficulty": "Moderate", "county": "Salt Lake" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.8573, 40.7580] }, "properties": { "name": "Ensign Peak", "elevation_ft": 5414, "difficulty": "Easy", "county": "Salt Lake" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.6240, 40.4575] }, "properties": { "name": "Timpanogos Cave", "elevation_ft": 6730, "difficulty": "Moderate", "county": "Utah" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.4980, 40.3920] }, "properties": { "name": "Stewart Falls", "elevation_ft": 7400, "difficulty": "Moderate", "county": "Utah" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-109.5925, 38.7270] }, "properties": { "name": "Delicate Arch", "elevation_ft": 4829, "difficulty": "Moderate", "county": "Grand" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-112.9980, 37.2690] }, "properties": { "name": "Angels Landing", "elevation_ft": 5790, "difficulty": "Hard", "county": "Washington" } },
+          { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-111.3830, 40.5960] }, "properties": { "name": "Lake Mary", "elevation_ft": 9620, "difficulty": "Moderate", "county": "Summit" } }
+        ]
+      },
+      "schema": {
+        "fields": [
+          { "name": "name", "type": "string" },
+          { "name": "elevation_ft", "type": "number" },
+          { "name": "difficulty", "type": "string" },
+          { "name": "county", "type": "string" }
+        ],
+        "geometryType": "Point",
+        "featureCount": 10,
+        "crs": "EPSG:4326"
+      }
+    }
+  },
+  "pipeline": {
+    "nodes": [
+      { "id": "node-1", "type": "file-import", "position": { "x": 80, "y": 200 }, "config": { "fileName": "Utah Trailheads.geojson" }, "comment": "Loads a sample dataset of 10 trailhead locations across Utah with name, elevation, difficulty, and county." },
+      { "id": "node-2", "type": "filter-rows", "position": { "x": 360, "y": 200 }, "config": { "rules": [{ "field": "elevation_ft", "operator": "greaterThan", "value": "7000" }], "logic": "AND" }, "comment": "Keeps only trailheads above 7,000 feet elevation. This removes lower-elevation trails from the results." },
+      { "id": "node-3", "type": "preview", "position": { "x": 640, "y": 120 }, "config": { "maxRows": 500 }, "comment": "Shows the filtered trailheads in a table so you can inspect the data." },
+      { "id": "node-4", "type": "add-to-map", "position": { "x": 640, "y": 280 }, "config": { "layerName": "High-Elevation Trailheads" }, "comment": "Adds the filtered high-elevation trailheads to the map as a new layer." }
+    ],
+    "wires": [
+      { "from": "node-1", "fromPort": "out", "to": "node-2", "toPort": "in" },
+      { "from": "node-2", "fromPort": "out", "to": "node-3", "toPort": "in" },
+      { "from": "node-2", "fromPort": "out", "to": "node-4", "toPort": "in" }
+    ]
+  }
+}
