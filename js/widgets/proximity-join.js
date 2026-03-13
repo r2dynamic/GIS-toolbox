@@ -637,6 +637,8 @@ export class ProximityJoinWidget extends WidgetBase {
 
         const srcLayer = this._getLayer(this._sourceLayerId);
         const tgtLayer = this._getLayer(this._targetLayerId);
+
+        try {
         const allSrcFeatures = srcLayer.geojson.features;
         const srcFeatures = this._getSourceFeatures(srcLayer);
         const tgtFeatures = tgtLayer.geojson.features;
@@ -770,10 +772,22 @@ export class ProximityJoinWidget extends WidgetBase {
             logger.info('ProximityJoin', `Updated schema for "${srcLayer.name}" — ${srcLayer.schema.fields.length} fields`);
         }
 
+        // Refresh the MapLibre source so popups & interactions reflect new attributes
+        this.mapManager?.refreshLayerData?.(srcLayer);
+
         this.refreshUI?.();
 
         this._refreshBody();
         this._bindEvents();
+
+        } catch (err) {
+            logger.error('ProximityJoin', 'Join failed', { error: err.message });
+            this.showToast?.(`Proximity join failed: ${err.message}`, 'error');
+            this._running = false;
+            this._results = null;
+            this._refreshBody();
+            this._bindEvents();
+        }
     }
 
     /* ================================================================

@@ -58,7 +58,7 @@ function boot() {
         const idx = mapManager._popupIndex;
         if (!hits || !hits[idx]) return;
         const hit = hits[idx];
-        mapManager.map.closePopup();
+        mapManager._closePopup();
         openFeatureEditor(hit.layerId, hit.featureIndex);
     };
 
@@ -4763,6 +4763,7 @@ function addField() {
 
                 renderFieldList();
                 renderOutputPanel();
+                mapManager.refreshLayerData(layer);
                 showToast(`Field "${name}" added`, 'success', { duration: 2000 });
                 close();
             };

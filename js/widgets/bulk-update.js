@@ -804,6 +804,9 @@ export class BulkUpdateWidget extends WidgetBase {
         this.showToast?.(`Updated ${fieldCount} field${fieldCount !== 1 ? 's' : ''} on ${updated} feature${updated !== 1 ? 's' : ''}`, 'success');
         logger.info('BulkUpdate', `Applied ${fieldCount} field update(s) to ${updated} feature(s)`);
 
+        // Refresh the MapLibre source so popups & interactions reflect updated attributes
+        this.mapManager?.refreshLayerData?.(layer);
+
         // Refresh the main app UI to reflect updated attributes
         this.refreshUI?.();
 

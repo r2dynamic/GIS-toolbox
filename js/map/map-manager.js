@@ -539,6 +539,28 @@ class MapManager {
         this.addLayer(dataset, this._getLayerZIndex(layerId), { fit: false });
     }
 
+    /**
+     * Refresh the GeoJSON source data for an existing layer on the map.
+     * Call after in-place mutations to feature properties (e.g. attribute joins).
+     */
+    refreshLayerData(dataset) {
+        const entry = this.dataLayers.get(dataset.id);
+        if (!entry) return;
+        const source = this.map?.getSource(entry.sourceId);
+        if (!source) return;
+
+        const features = dataset.geojson.features.filter(f => f.geometry).map(f => {
+            const origIndex = dataset.geojson.features.indexOf(f);
+            return {
+                ...f,
+                properties: { ...(f.properties || {}), _featureIndex: origIndex, _datasetId: dataset.id }
+            };
+        });
+        const geojson = { type: 'FeatureCollection', features };
+        source.setData(geojson);
+        entry.geojson = geojson;
+    }
+
     _getLayerZIndex(layerId) {
         let i = 0;
         for (const id of this.dataLayers.keys()) {
@@ -577,7 +599,7 @@ class MapManager {
         }
 
         const rows = Object.entries(props)
-            .filter(([k, v]) => v != null && !k.startsWith('_'))
+            .filter(([k]) => !k.startsWith('_'))
             .map(([k, v]) => {
                 if (v && typeof v === 'object' && v._att && v.dataUrl) {
                     return `<tr><th>${k}</th><td style="padding:4px 0;">
@@ -586,7 +608,8 @@ class MapManager {
                     </td></tr>`;
                 }
                 let val = v;
-                if (typeof v === 'object') val = JSON.stringify(v);
+                if (val == null) val = '';
+                else if (typeof v === 'object') val = JSON.stringify(v);
                 if (typeof val === 'string' && val.length > 100) val = val.slice(0, 100) + '…';
                 return `<tr><th>${k}</th><td>${val}</td></tr>`;
             }).join('');

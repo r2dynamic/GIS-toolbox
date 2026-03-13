@@ -314,15 +314,26 @@
     <!-- Register Service Worker -->
     <script>
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('./sw.js').then(reg => {
-                reg.onupdatefound = () => {
-                    const worker = reg.installing;
-                    worker.onstatechange = () => {
-                        if (worker.state === 'activated') {
-                            window.location.reload();
-                        }
-                    };
-                };
+            navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then(reg => {
+                // Check for updates every 5 minutes
+                setInterval(() => reg.update(), 5 * 60 * 1000);
+            });
+
+            // Reload when a new SW takes control (most reliable trigger)
+            let refreshing = false;
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                if (refreshing) return;
+                refreshing = true;
+                window.location.reload();
+            });
+
+            // Also handle explicit reload message from SW
+            navigator.serviceWorker.addEventListener('message', (event) => {
+                if (event.data?.type === 'SW_UPDATED') {
+                    if (refreshing) return;
+                    refreshing = true;
+                    window.location.reload();
+                }
             });
         }
     </script>

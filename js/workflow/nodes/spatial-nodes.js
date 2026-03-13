@@ -85,7 +85,8 @@ export class SimplifyNode extends NodeBase {
         const data = inputs[0];
         if (!data || data.type !== 'spatial') throw new Error('Spatial input required');
         const { simplifyFeatures } = await import('../../tools/gis-tools.js');
-        return simplifyFeatures(data, this.config.tolerance);
+        const result = await simplifyFeatures(data, this.config.tolerance);
+        return result.dataset;
     }
 }
 
